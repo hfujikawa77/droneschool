@@ -8,7 +8,7 @@ master.wait_heartbeat()
 '''
 ## IPアドレスを変える事
 master: mavutil.mavfile = mavutil.mavlink_connection(
-    "tcp:10.40.242.238:5762", source_system=1, source_component=90)
+    "tcp:172.30.96.1:5762", source_system=1, source_component=90)
 master.wait_heartbeat()
 
 
