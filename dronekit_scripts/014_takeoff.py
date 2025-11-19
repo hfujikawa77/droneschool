@@ -28,8 +28,8 @@ while not vehicle.armed:
     print("アームを待ってます")
     time.sleep(1)
 
-# 離陸高度を100mに設定
-targetAltitude = 100
+# 離陸高度を10mに設定
+targetAltitude = 10
 
 print("離陸！")
 vehicle.simple_takeoff(targetAltitude)

@@ -26,3 +26,8 @@ sim_vehicle.py -v Copter -L Kawachi --map --console --out=udp:127.0.0.1:14550 --
 ・arm throttle
 ・takeoff 20
 ・(GUIで)Flyto　
+
+dronekit_scriptsを試す
+208_attitude.py,   が動かない
+209_position.py     が動かない
+214_mission_next.py　動かない
