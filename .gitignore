@@ -112,3 +112,10 @@ multiple_vehicles/mav.tlog
 multiple_vehicles/mav.tlog.raw
 multiple_vehicles/logs/*
 multiple_vehicles/terrain/*
+
+eeprom.bin
+mav.parm
+mav.tlog
+mav.tlog.raw
+logs/*
+terrain/*
