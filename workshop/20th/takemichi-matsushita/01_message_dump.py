@@ -17,6 +17,7 @@ master.mav.command_long_send(
     mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
     0, 33, 100000, 0, 0, 0, 0, 0)
 
+
 while True:
     try:
         print(master.recv_match().to_dict())
