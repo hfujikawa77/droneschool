@@ -142,6 +142,20 @@ def set_rtl_altitude(master: mavutil.mavfile, altitude_m: float, timeout: float 
     return False
 
 
+def wait_command_ack(master: mavutil.mavfile, command: int, timeout: float = 5.0):
+    """COMMAND_ACKを待って結果と文字列表現を返す。"""
+    start = time.time()
+    while time.time() - start < timeout:
+        msg = master.recv_match(type="COMMAND_ACK", blocking=True, timeout=1)
+        if not msg:
+            continue
+        if getattr(msg, "command", None) == command:
+            result_enum = mavutil.mavlink.enums["MAV_RESULT"].get(msg.result, None)
+            result_str = result_enum.name if result_enum else str(msg.result)
+            return msg.result, result_str
+    return None, "timeout"
+
+
 def main():
     """GUIDED離陸から目標地点への移動、RTL帰還までのデモフローを実行する。"""
     # 機体への接続
@@ -166,10 +180,11 @@ def main():
     master.arducopter_arm()
     master.motors_armed_wait()
     target_altitude = 10
+    takeoff_cmd = mavutil.mavlink.MAV_CMD_NAV_TAKEOFF
     master.mav.command_long_send(
         master.target_system,
         master.target_component,
-        mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+        takeoff_cmd,
         0,
         0,
         0,
@@ -179,7 +194,11 @@ def main():
         0,
         target_altitude,
     )
-    # 位置メッセージを高頻度で受信
+    ack, ack_text = wait_command_ack(master, takeoff_cmd)
+    if ack not in (mavutil.mavlink.MAV_RESULT_ACCEPTED, mavutil.mavlink.MAV_RESULT_IN_PROGRESS):
+        print(f"TAKEOFFが拒否/失敗しました: {ack_text}")
+        sys.exit(1)
+    # 位置メッセージを受信する頻度を指定しておく
     master.mav.command_long_send(
         master.target_system,
         master.target_component,
@@ -198,33 +217,52 @@ def main():
         sys.exit(1)
     print("離陸完了")
 
-    # 目標位置へ移動
-    target_lat = 35.8782539
-    target_lon = 140.3383577
-    master.mav.set_position_target_global_int_send(
-        0,
+    # 巡航速度を3 m/sに設定（水平）
+    master.mav.param_set_send(
         master.target_system,
         master.target_component,
-        mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
-        0b0000111111111000,  # 速度・加速度無視、位置のみ指令
-        int(target_lat * 1e7),
-        int(target_lon * 1e7),
-        target_altitude,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
+        b"WPNAV_SPEED",
+        300,  # cm/s
+        mavutil.mavlink.MAV_PARAM_TYPE_INT32,
     )
-    if not wait_position(master, target_lat, target_lon, target_altitude):
-        print("目的地へ到達できませんでした")
-        sys.exit(1)
-    print("目的地に到達")
-    print("10秒待機後にRTLで帰還します")
+
+
+
+    # 目標位置リスト（lat, lon, alt[m]）
+    waypoints = [
+
+        (35.8792536, 140.339216, target_altitude),
+        (35.8791927, 140.3390497, target_altitude),
+        (35.8788059, 140.3395915, target_altitude),
+        (35.8787189, 140.3394628, target_altitude),
+        (35.8790754, 140.3389049, target_altitude),
+        (35.878984 , 140.3387707, target_altitude),
+        (35.8786277, 140.3393017, target_altitude),
+        (35.878545 , 140.3391838, target_altitude), 
+        (35.8788754, 140.3386259, target_altitude), 
+    ]
+
+    for idx, (lat, lon, alt) in enumerate(waypoints, 1):
+        print(f"{idx}個目のWPへ移動: lat={lat}, lon={lon}, alt={alt}")
+        master.mav.set_position_target_global_int_send(
+            0,
+            master.target_system,
+            master.target_component,
+            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            0b0000111111111000,  # 速度/加速度無視、位置のみ指令
+            int(lat * 1e7),
+            int(lon * 1e7),
+            alt,
+            0, 0, 0,
+            0, 0, 0,
+            0, 0,
+        )
+        if not wait_position(master, lat, lon, alt):
+            print(f"{idx}個目のWPに到達できませんでした")
+            sys.exit(1)
+        print(f"{idx}個目のWPに到達、5秒待機")
+        time.sleep(5)
+    print("全WPを巡回完了、10秒待機してRTLへ")
     time.sleep(10)
 
     # RTL高度をパラメータで設定（メートル指定）
