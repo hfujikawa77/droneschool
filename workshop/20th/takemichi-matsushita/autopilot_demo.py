@@ -231,15 +231,14 @@ def main():
     # 目標位置リスト（lat, lon, alt[m]）
     waypoints = [
 
-        (35.8792536, 140.339216, target_altitude),
-        (35.8791927, 140.3390497, target_altitude),
-        (35.8788059, 140.3395915, target_altitude),
-        (35.8787189, 140.3394628, target_altitude),
-        (35.8790754, 140.3389049, target_altitude),
-        (35.878984 , 140.3387707, target_altitude),
-        (35.8786277, 140.3393017, target_altitude),
-        (35.878545 , 140.3391838, target_altitude), 
-        (35.8788754, 140.3386259, target_altitude), 
+        (35.8789928, 140.3391945, target_altitude),
+        (35.8787516, 140.3395969, target_altitude),
+        (35.8786711, 140.3394789, target_altitude),
+        (35.8789189, 140.3390872, target_altitude),
+        (35.8788494, 140.3389585, target_altitude),
+        (35.8786016, 140.3393608, target_altitude),
+        (35.8784994, 140.3392133, target_altitude),
+        (35.8787559, 140.338811 , target_altitude), 
     ]
 
     for idx, (lat, lon, alt) in enumerate(waypoints, 1):
