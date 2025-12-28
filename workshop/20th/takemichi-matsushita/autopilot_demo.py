@@ -160,6 +160,7 @@ def main():
     """GUIDED離陸から目標地点への移動、RTL帰還までのデモフローを実行する。"""
     # 機体への接続
     master: mavutil.mavfile = mavutil.mavlink_connection(
+        #device="127.0.0.1:14550", source_system=1, source_component=90
         device="127.0.0.1:14551", source_system=1, source_component=90
     )
     master.wait_heartbeat()
@@ -228,17 +229,13 @@ def main():
 
 
 
-    # 目標位置リスト（lat, lon, alt[m]）
+    # 目標位置リスト（lat, lon, 
+    # alt[m]）
     waypoints = [
 
-        (35.8789928, 140.3391945, target_altitude),
-        (35.8787516, 140.3395969, target_altitude),
-        (35.8786711, 140.3394789, target_altitude),
-        (35.8789189, 140.3390872, target_altitude),
-        (35.8788494, 140.3389585, target_altitude),
-        (35.8786016, 140.3393608, target_altitude),
-        (35.8784994, 140.3392133, target_altitude),
-        (35.8787559, 140.338811 , target_altitude), 
+        (35.8791623, 140.3356580, target_altitude),
+        (35.8790384, 140.3355977, target_altitude),
+        (35.8790580, 140.3355159, target_altitude),
     ]
 
     for idx, (lat, lon, alt) in enumerate(waypoints, 1):
@@ -265,7 +262,7 @@ def main():
     time.sleep(10)
 
     # RTL高度をパラメータで設定（メートル指定）
-    rtl_altitude = 50
+    rtl_altitude = 20
     if not set_rtl_altitude(master, rtl_altitude):
         print(f"RTL高度({rtl_altitude}m)の設定確認に失敗しました。機体側の値が使用されます。")
 
