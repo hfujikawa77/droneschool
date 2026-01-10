@@ -94,7 +94,7 @@ class VehicleController:
         """
         Args:
             name: 機体名（表示用）
-            connection_string: 接続文字列（例: "tcp:192.168.3.38:5762"）
+            connection_string: 接続文字列（例: "tcp:127.0.0.1:5762"）
             vehicle_type: 機体タイプ（"rover", "boat", "copter"）
             mission_file: ミッションファイルのパス（オプション）
         """
@@ -401,16 +401,22 @@ def main():
     print("ローバー → ボート → コプター")
     print("=" * 60)
 
+    # 接続先ホストの設定（環境変数またはデフォルト）
+    # 環境変数 SITL_HOST を設定することで変更可能
+    # 例: export SITL_HOST=192.168.1.100
+    sitl_host = os.environ.get('SITL_HOST', '127.0.0.1')
+    print(f"接続先ホスト: {sitl_host}")
+
     # スクリプトのディレクトリを取得
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     # 機体定義（ミッションファイル付き）
     vehicles = [
-        VehicleController("ローバー", "tcp:192.168.3.38:5762", "rover",
+        VehicleController("ローバー", f"tcp:{sitl_host}:5762", "rover",
                          os.path.join(script_dir, "rover_mission.waypoints")),
-        VehicleController("ボート", "tcp:192.168.3.38:5772", "boat",
+        VehicleController("ボート", f"tcp:{sitl_host}:5772", "boat",
                          os.path.join(script_dir, "boat_mission.waypoints")),
-        VehicleController("コプター", "tcp:192.168.3.38:5782", "copter",
+        VehicleController("コプター", f"tcp:{sitl_host}:5782", "copter",
                          os.path.join(script_dir, "copter_mission.waypoints")),
     ]
 

@@ -24,7 +24,7 @@ workshop/20th/hideyuki-fujikawa/multi_vehicles の下に作って。
 
 ```python
 master: mavutil.mavfile = mavutil.mavlink_connection(
-    "tcp:192.168.3.38:5782",  source_system=1, source_component=90)
+    "tcp:127.0.0.1:5782",  source_system=1, source_component=90)
 ```
 
 **Claude:**

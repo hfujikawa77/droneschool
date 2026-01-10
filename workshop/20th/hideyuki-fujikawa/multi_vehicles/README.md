@@ -61,11 +61,29 @@ python sequential_control.py
 
 各機体の接続設定：
 
-| 機体タイプ | ポート | 接続文字列 |
+| 機体タイプ | ポート | 接続文字列（デフォルト） |
 |-----------|--------|-----------|
-| ローバー   | 5762   | tcp:192.168.3.38:5762 |
-| ボート     | 5772   | tcp:192.168.3.38:5772 |
-| コプター   | 5782   | tcp:192.168.3.38:5782 |
+| ローバー   | 5762   | tcp:127.0.0.1:5762 |
+| ボート     | 5772   | tcp:127.0.0.1:5772 |
+| コプター   | 5782   | tcp:127.0.0.1:5782 |
+
+**接続先ホストの変更:**
+
+環境変数 `SITL_HOST` を設定することで接続先を変更できます。
+
+```bash
+# Linux/macOS
+export SITL_HOST=192.168.1.100
+python3 sequential_control.py
+
+# Windows (PowerShell)
+$env:SITL_HOST="192.168.1.100"
+python sequential_control.py
+
+# Windows (cmd)
+set SITL_HOST=192.168.1.100
+python sequential_control.py
+```
 
 ## スクリプトの動作
 
@@ -107,10 +125,12 @@ python sequential_control.py
 `sequential_control.py` の `main()` 関数内の `vehicles` リストを編集：
 
 ```python
+# デフォルトは127.0.0.1、環境変数SITL_HOSTで変更可能
+sitl_host = os.environ.get('SITL_HOST', '127.0.0.1')
 vehicles = [
-    VehicleController("ローバー", "tcp:192.168.3.38:5762", "rover"),
-    VehicleController("ボート", "tcp:192.168.3.38:5772", "boat"),
-    VehicleController("コプター", "tcp:192.168.3.38:5782", "copter"),
+    VehicleController("ローバー", f"tcp:{sitl_host}:5762", "rover"),
+    VehicleController("ボート", f"tcp:{sitl_host}:5772", "boat"),
+    VehicleController("コプター", f"tcp:{sitl_host}:5782", "copter"),
 ]
 ```
 
