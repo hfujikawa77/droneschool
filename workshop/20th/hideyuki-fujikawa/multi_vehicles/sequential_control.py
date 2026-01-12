@@ -19,6 +19,14 @@ import time
 import os
 import math
 
+# 定数定義
+MESSAGE_RATE_HZ = 10  # メッセージ受信レート（Hz）
+MESSAGE_INTERVAL_US = 100000  # メッセージ間隔（マイクロ秒）
+WAYPOINT_REACHED_THRESHOLD_M = 5.0  # ウェイポイント到達判定距離（メートル）
+REQUIRED_CONFIRMATION_COUNT = 5  # 到達確認に必要な連続カウント
+EARTH_RADIUS_M = 6371000  # 地球の半径（メートル）
+DEFAULT_TAKEOFF_ALTITUDE_M = 3.0  # デフォルト離陸高度（メートル）
+
 
 def load_mission_from_file(filepath):
     """
@@ -112,41 +120,39 @@ class VehicleController:
         self.master.wait_heartbeat()
         print(f"[{self.name}] 接続完了 (sysid: {self.master.target_system}, compid: {self.master.target_component})")
 
+    def _change_mode(self, mode: str):
+        """
+        フライトモードを変更
+
+        Args:
+            mode: 変更先のモード（例: "GUIDED", "AUTO"）
+        """
+        self.master.set_mode_apm(self.master.mode_mapping()[mode])
+        while self.master.flightmode != mode:
+            self.master.recv_msg()
+        print(f"[{self.name}] モード変更完了: {mode}")
+
     def arm(self):
         """機体をアーム"""
         print(f"[{self.name}] アーム開始...")
-
-        if self.vehicle_type == "copter":
-            # コプターの場合はGUIDEDモードに変更
-            mode = 'GUIDED'
-            self.master.set_mode_apm(self.master.mode_mapping()[mode])
-
-            # モード変更を確認
-            while True:
-                if self.master.flightmode == mode:
-                    break
-                self.master.recv_msg()
-            print(f"[{self.name}] モード変更完了: {mode}")
-
-            self.master.arducopter_arm()
-        else:
-            # ローバー、ボートの場合はGUIDEDモードに変更してからアーム
-            mode = 'GUIDED'
-            self.master.set_mode_apm(self.master.mode_mapping()[mode])
-
-            # モード変更を確認
-            while True:
-                if self.master.flightmode == mode:
-                    break
-                self.master.recv_msg()
-            print(f"[{self.name}] モード変更完了: {mode}")
-
-            self.master.arducopter_arm()
-
+        self._change_mode('GUIDED')
+        self.master.arducopter_arm()
         self.master.motors_armed_wait()
         print(f"[{self.name}] アーム完了")
 
-    def takeoff(self, target_altitude: float = 3.0):
+    def _set_message_interval(self, message_id: int):
+        """
+        メッセージ受信間隔を設定
+
+        Args:
+            message_id: メッセージID（例: 33 = GLOBAL_POSITION_INT）
+        """
+        self.master.mav.command_long_send(
+            self.master.target_system, self.master.target_component,
+            mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+            0, message_id, MESSAGE_INTERVAL_US, 0, 0, 0, 0, 0)
+
+    def takeoff(self, target_altitude: float = DEFAULT_TAKEOFF_ALTITUDE_M):
         """
         離陸（コプターのみ）
 
@@ -165,11 +171,8 @@ class VehicleController:
             mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
             0, 0, 0, 0, 0, 0, 0, target_altitude)
 
-        # メッセージレート変更: GLOBAL_POSITION_INT(33)を10Hzで受信
-        self.master.mav.command_long_send(
-            self.master.target_system, self.master.target_component,
-            mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
-            0, 33, 100000, 0, 0, 0, 0, 0)
+        # GLOBAL_POSITION_INTメッセージの受信レートを設定
+        self._set_message_interval(33)
 
         # 目標高度への到達を確認
         while True:
@@ -188,18 +191,7 @@ class VehicleController:
     def start_mission(self):
         """ミッション開始"""
         print(f"[{self.name}] ミッション開始...")
-
-        # AUTOモードに変更
-        mode = 'AUTO'
-        self.master.set_mode_apm(self.master.mode_mapping()[mode])
-
-        # モード変更を確認
-        while True:
-            if self.master.flightmode == mode:
-                break
-            self.master.recv_msg()
-
-        print(f"[{self.name}] モード変更完了: {mode}")
+        self._change_mode('AUTO')
 
     def upload_mission(self, mission_items):
         """
@@ -267,7 +259,30 @@ class VehicleController:
             return mission_count_msg.count
         return 0
 
-    def get_distance_to_waypoint(self, target_lat, target_lon):
+    def _calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """
+        2地点間の距離を計算（Haversine公式）
+
+        Args:
+            lat1: 地点1の緯度（度）
+            lon1: 地点1の経度（度）
+            lat2: 地点2の緯度（度）
+            lon2: 地点2の経度（度）
+
+        Returns:
+            float: 距離（メートル）
+        """
+        lat1_rad = math.radians(lat1)
+        lat2_rad = math.radians(lat2)
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+
+        a = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+        return EARTH_RADIUS_M * c
+
+    def get_distance_to_waypoint(self, target_lat: float, target_lon: float) -> float:
         """
         現在位置から目標ウェイポイントまでの距離を計算（メートル）
 
@@ -276,92 +291,70 @@ class VehicleController:
             target_lon: 目標経度（度）
 
         Returns:
-            float: 距離（メートル）
+            float: 距離（メートル）、取得失敗時はinf
         """
-        # GLOBAL_POSITION_INTメッセージを取得
         msg = self.master.recv_match(type='GLOBAL_POSITION_INT', blocking=True, timeout=3)
         if not msg:
             return float('inf')
 
-        # 現在位置（度に変換）
         current_lat = msg.lat / 1e7
         current_lon = msg.lon / 1e7
 
-        # Haversine公式で距離計算
-        R = 6371000  # 地球の半径（メートル）
+        return self._calculate_distance(current_lat, current_lon, target_lat, target_lon)
 
-        lat1 = math.radians(current_lat)
-        lat2 = math.radians(target_lat)
-        dlat = math.radians(target_lat - current_lat)
-        dlon = math.radians(target_lon - current_lon)
+    def _get_last_waypoint_position(self):
+        """
+        最後のウェイポイントの座標を取得
 
-        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-
-        distance = R * c
-        return distance
-
-    def wait_mission_complete(self):
-        """ミッション完了を待機（位置情報ベース）"""
-        print(f"[{self.name}] ミッション完了待機中...")
-
-        # ミッションをダウンロードして最後のウェイポイント情報を取得
+        Returns:
+            tuple: (緯度, 経度, ウェイポイント番号) または (None, None, None)
+        """
         mission_count = self.get_mission_count()
         print(f"[{self.name}] ミッションアイテム数: {mission_count}")
 
         if mission_count == 0:
             print(f"[{self.name}] 警告: ミッションがアップロードされていません")
-            return
+            return None, None, None
 
-        # 最後のウェイポイント番号（HOMEを除く）
         last_waypoint_seq = mission_count - 1
 
-        # 最後のウェイポイントの座標を取得
         self.master.mav.mission_request_int_send(
             self.master.target_system, self.master.target_component, last_waypoint_seq)
         last_wp = self.master.recv_match(type='MISSION_ITEM_INT', blocking=True, timeout=5)
 
         if not last_wp:
             print(f"[{self.name}] 警告: 最後のウェイポイント情報を取得できませんでした")
-            return
+            return None, None, None
 
         target_lat = last_wp.x / 1e7
         target_lon = last_wp.y / 1e7
         print(f"[{self.name}] 最後のウェイポイント座標: ({target_lat:.6f}, {target_lon:.6f})")
 
-        # GLOBAL_POSITION_INTメッセージのレート設定（10Hz）
-        self.master.mav.command_long_send(
-            self.master.target_system, self.master.target_component,
-            mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
-            0, 33, 100000, 0, 0, 0, 0, 0)  # GLOBAL_POSITION_INT = 33
+        return target_lat, target_lon, last_waypoint_seq
 
-        time.sleep(1)  # メッセージレート設定の反映を待つ
+    def wait_mission_complete(self):
+        """ミッション完了を待機（位置情報ベース）"""
+        print(f"[{self.name}] ミッション完了待機中...")
+
+        target_lat, target_lon, last_waypoint_seq = self._get_last_waypoint_position()
+        if target_lat is None:
+            return
+
+        self._set_message_interval(33)  # GLOBAL_POSITION_INT
+        time.sleep(1)
 
         last_distance = float('inf')
-        reached_threshold = 5.0  # 到達判定距離（メートル）
-        within_threshold_count = 0  # 閾値内にいる回数
-        required_count = 5  # 完了とみなすために必要な連続カウント
+        within_threshold_count = 0
 
         print(f"[{self.name}] 最後のウェイポイント({last_waypoint_seq})への到達を待機中（距離ベース）...")
 
         while True:
-            # GLOBAL_POSITION_INTメッセージを取得
             msg = self.master.recv_match(type='GLOBAL_POSITION_INT', blocking=True, timeout=1)
 
             if msg:
                 current_lat = msg.lat / 1e7
                 current_lon = msg.lon / 1e7
-
-                # 距離計算（Haversine公式）
-                R = 6371000  # 地球の半径（メートル）
-                lat1 = math.radians(current_lat)
-                lat2 = math.radians(target_lat)
-                dlat = math.radians(target_lat - current_lat)
-                dlon = math.radians(target_lon - current_lon)
-
-                a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-                c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-                distance = R * c
+                distance = self._calculate_distance(current_lat, current_lon, target_lat, target_lon)
 
                 # 距離が大きく変わったらログ出力
                 if abs(distance - last_distance) > 5:
@@ -369,9 +362,9 @@ class VehicleController:
                     last_distance = distance
 
                 # 距離ベースの到達判定
-                if distance < reached_threshold:
+                if distance < WAYPOINT_REACHED_THRESHOLD_M:
                     within_threshold_count += 1
-                    if within_threshold_count >= required_count:
+                    if within_threshold_count >= REQUIRED_CONFIRMATION_COUNT:
                         print(f"[{self.name}] ★★★ 位置判定: 最終WP({last_waypoint_seq})に到達 ({distance:.1f}m) ★★★")
                         time.sleep(2)
                         self.master.recv_msg()
@@ -379,9 +372,8 @@ class VehicleController:
                         print(f"[{self.name}] ミッション完了（最終モード: {current_mode}）")
                         return
                     else:
-                        print(f"[{self.name}] 最終WPに接近中: {distance:.1f}m (確認: {within_threshold_count}/{required_count})")
+                        print(f"[{self.name}] 最終WPに接近中: {distance:.1f}m (確認: {within_threshold_count}/{REQUIRED_CONFIRMATION_COUNT})")
                 else:
-                    # 閾値外に出たらカウントリセット
                     within_threshold_count = 0
 
             time.sleep(0.1)
@@ -445,7 +437,7 @@ def main():
 
             # 離陸（コプターのみ）
             if vehicle.vehicle_type == "copter":
-                vehicle.takeoff(target_altitude=3.0)
+                vehicle.takeoff()
                 time.sleep(1)
 
             # ミッション開始
