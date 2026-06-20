@@ -30,13 +30,24 @@ jobs:
           # イベントごとに番号・URL の置き場所が違うのでフォールバックさせる
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
           PR_URL: ${{ github.event.pull_request.html_url || github.event.issue.html_url }}
+          ACTION: ${{ github.event.action }}
+          MERGED: ${{ github.event.pull_request.merged }}
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           if [ -z "$WEBHOOK" ]; then
             echo "DISCORD_WEBHOOK が空のため通知をスキップします" >&2
             exit 0
           fi
+          # アクション種別を日本語ラベルに変換
+          case "$ACTION" in
+            opened) LABEL="オープン" ;;
+            edited) LABEL="編集" ;;
+            closed)
+              if [ "$MERGED" = "true" ]; then LABEL="マージ"; else LABEL="クローズ"; fi
+              ;;
+            *) LABEL="$ACTION" ;;
+          esac
           curl -H "Content-Type: application/json" \
-          -d "$(jq -n --arg n "$PR_NUMBER" --arg u "$PR_URL" \
-            '{content: ("PR更新: #" + $n + "\n" + $u)}')" \
+          -d "$(jq -n --arg l "$LABEL" --arg n "$PR_NUMBER" --arg u "$PR_URL" \
+            '{content: ("PR" + $l + ": #" + $n + "\n" + $u)}')" \
           "$WEBHOOK"
