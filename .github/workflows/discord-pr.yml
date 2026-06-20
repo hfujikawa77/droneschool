@@ -1,7 +1,9 @@
 name: Discord PR Notify
 
 on:
-  pull_request:
+  # フォーク由来の PR でも Secrets を使えるよう pull_request_target を使う
+  # (PR のコードはチェックアウト・実行せず、番号と URL しか参照しないため安全)
+  pull_request_target:
     types:
       - opened
       - edited
@@ -30,6 +32,10 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url || github.event.issue.html_url }}
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "DISCORD_WEBHOOK が空のため通知をスキップします" >&2
+            exit 0
+          fi
           curl -H "Content-Type: application/json" \
           -d "$(jq -n --arg n "$PR_NUMBER" --arg u "$PR_URL" \
             '{content: ("PR更新: #" + $n + "\n" + $u)}')" \
