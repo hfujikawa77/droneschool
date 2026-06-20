@@ -6,16 +6,31 @@ on:
       - opened
       - edited
       - closed
-      
+  pull_request_review:
+    types:
+      - submitted
+  pull_request_review_comment:
+    types:
+      - created
+  issue_comment:
+    types:
+      - created
+
 jobs:
   notify:
     runs-on: ubuntu-latest
+    # issue_comment は通常の Issue でも発火するため PR のコメントだけに絞る
+    if: ${{ github.event_name != 'issue_comment' || github.event.issue.pull_request }}
 
     steps:
       - name: Send Discord
+        env:
+          # イベントごとに番号・URL の置き場所が違うのでフォールバックさせる
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          PR_URL: ${{ github.event.pull_request.html_url || github.event.issue.html_url }}
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           curl -H "Content-Type: application/json" \
-          -d '{
-            "content":"PR更新: #${{ github.event.pull_request.number }}\n${{ github.event.pull_request.html_url }}"
-          }' \
-          ${{ secrets.DISCORD_WEBHOOK }}
+          -d "$(jq -n --arg n "$PR_NUMBER" --arg u "$PR_URL" \
+            '{content: ("PR更新: #" + $n + "\n" + $u)}')" \
+          "$WEBHOOK"
