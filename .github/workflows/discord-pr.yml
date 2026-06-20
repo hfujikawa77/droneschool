@@ -1,0 +1,21 @@
+name: Discord PR Notify
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Discord
+        run: |
+          curl -H "Content-Type: application/json" \
+          -d '{
+            "content":"PR更新: #${{ github.event.pull_request.number }}\n${{ github.event.pull_request.html_url }}"
+          }' \
+          ${{ secrets.DISCORD_WEBHOOK }}
