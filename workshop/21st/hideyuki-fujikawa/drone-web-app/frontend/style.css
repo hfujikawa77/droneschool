@@ -1,0 +1,194 @@
+:root {
+  --bg: #f4f6f8;
+  --panel-bg: #ffffff;
+  --accent: #1565c0;
+  --accent-dark: #0d47a1;
+  --border: #d7dde3;
+  --ok: #2e7d32;
+  --off: #b0bec5;
+  --warn: #c62828;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  background: var(--bg);
+  color: #222;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--accent-dark);
+  color: #fff;
+}
+
+header h1 {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.badge {
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-weight: bold;
+}
+
+.badge-on {
+  background: var(--ok);
+  color: #fff;
+}
+
+.badge-off {
+  background: var(--off);
+  color: #333;
+}
+
+main {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.panel h2 {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 6px;
+}
+
+/* ステータス表 */
+.status-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.status-table th,
+.status-table td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.status-table th {
+  width: 45%;
+  color: #555;
+  font-weight: 600;
+}
+
+.status-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* コントロール */
+.control-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.control-group label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+  color: #555;
+  gap: 4px;
+}
+
+input,
+select {
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 0.9rem;
+}
+
+input[type="number"] {
+  width: 130px;
+}
+
+button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 5px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+button:hover {
+  background: var(--accent-dark);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+.log {
+  margin-top: 12px;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border-radius: 5px;
+  padding: 8px;
+  font-family: "Consolas", monospace;
+}
+
+.log div {
+  padding: 1px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 地図 */
+.map-panel {
+  padding-bottom: 16px;
+}
+
+#map {
+  width: 100%;
+  height: 480px;
+  border-radius: 6px;
+}
+
+/* レスポンシブ: スマホ幅では縦並び */
+@media (max-width: 768px) {
+  .panels {
+    grid-template-columns: 1fr;
+  }
+
+  #map {
+    height: 340px;
+  }
+
+  input[type="number"] {
+    width: 100%;
+  }
+}
