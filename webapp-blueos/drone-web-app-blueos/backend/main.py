@@ -225,7 +225,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 if msg.get_type() == 'GLOBAL_POSITION_INT':
                                     drone_status["latitude"] = msg.lat / 1e7
                                     drone_status["longitude"] = msg.lon / 1e7
-                                    drone_status["altitude"] = msg.alt / 1000.0 # mm to meters
+                                    drone_status["altitude"] = msg.relative_alt / 1000.0 # mm to meters (home-relative, matches GCS)
                                     drone_status["heading"] = msg.hdg / 100.0 # centidegrees to degrees
                                 elif msg.get_type() == 'HEARTBEAT':
                                     # ARM status via base_mode SAFETY_ARMED flag
