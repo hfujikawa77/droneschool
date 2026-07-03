@@ -1,165 +1,143 @@
-"use strict";
+const connectionStatus = document.getElementById('connectionStatus');
+const armedStatus = document.getElementById('armedStatus');
+const modeStatus = document.getElementById('modeStatus');
+const latitudeStatus = document.getElementById('latitudeStatus');
+const longitudeStatus = document.getElementById('longitudeStatus');
+const altitudeStatus = document.getElementById('altitudeStatus');
 
-// ---- 地図初期化 -----------------------------------------------------------
-// ローカル同梱した Leaflet のマーカー画像パスを明示（オフラインでも表示）
-L.Icon.Default.imagePath = "/static/leaflet/images/";
+const connectBtn = document.getElementById('connectBtn');
+const armBtn = document.getElementById('armBtn');
+const takeoffBtn = document.getElementById('takeoffBtn');
+const landBtn = document.getElementById('landBtn');
+const gotoBtn = document.getElementById('gotoBtn');
+const setModeBtn = document.getElementById('setModeBtn');
 
-const TOKYO_STATION = [35.681236, 139.767125];
+const takeoffAltitudeInput = document.getElementById('takeoffAltitude');
+const gotoLatitudeInput = document.getElementById('gotoLatitude');
+const gotoLongitudeInput = document.getElementById('gotoLongitude');
+const gotoAltitudeInput = document.getElementById('gotoAltitude');
+const modeSelect = document.getElementById('modeSelect');
 
-const map = L.map("map").setView(TOKYO_STATION, 16);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: "&copy; OpenStreetMap contributors",
-}).addTo(map);
+let ws;
+let map;
+let droneMarker;
+let flightPath = [];
+let flightPathPolyline;
 
-let marker = L.marker(TOKYO_STATION).addTo(map);
-let track = L.polyline([], { color: "#1565c0", weight: 3 }).addTo(map);
-let trackPoints = [];
-let hasFix = false; // 有効な位置を受信したか
-
-// ---- DOM 参照 -------------------------------------------------------------
-const el = (id) => document.getElementById(id);
-const wsIndicator = el("ws-indicator");
-const logBox = el("log");
-
-function log(message) {
-  const line = document.createElement("div");
-  const ts = new Date().toLocaleTimeString();
-  line.textContent = `[${ts}] ${message}`;
-  logBox.appendChild(line);
-  logBox.scrollTop = logBox.scrollHeight;
+// Initialize Leaflet Map
+function initMap() {
+    map = L.map('map').setView([35.681236, 139.767125], 13); // Default to Tokyo
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    droneMarker = L.marker([35.681236, 139.767125]).addTo(map)
+        .bindPopup("Drone Position").openPopup();
+    flightPathPolyline = L.polyline(flightPath, {color: 'red'}).addTo(map);
 }
-
-// ---- WebSocket ------------------------------------------------------------
-let ws = null;
 
 function connectWebSocket() {
-  ws = new WebSocket(`ws://${window.location.host}/ws`);
+    ws = new WebSocket(`ws://${window.location.host}/ws`);
 
-  ws.onopen = () => {
-    wsIndicator.textContent = "サーバー接続中";
-    wsIndicator.className = "badge badge-on";
-    // 再接続時は飛行軌跡をクリア
-    clearTrack();
-    log("サーバーに接続しました");
-  };
+    ws.onopen = () => {
+        connectionStatus.textContent = '接続済み';
+        console.log('WebSocket connected');
+        clearFlightPath(); // Clear previous flight path on new connection
+        // Send a connect command to the backend to initiate drone connection
+        ws.send(JSON.stringify({ type: 'connect' }));
+    };
 
-  ws.onclose = () => {
-    wsIndicator.textContent = "サーバー未接続";
-    wsIndicator.className = "badge badge-off";
-    log("サーバーから切断されました。3秒後に再接続します");
-    setTimeout(connectWebSocket, 3000);
-  };
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        // console.log('Received:', data);
 
-  ws.onerror = () => {
-    log("WebSocket エラーが発生しました");
-  };
+        if (data.type === 'status') {
+            // This is a general status message from backend
+            console.log('Backend Status:', data.message);
+        } else {
+            // This is drone telemetry data
+            armedStatus.textContent = data.armed ? 'アーム済み' : '未アーム';
+            modeStatus.textContent = data.mode;
+            latitudeStatus.textContent = data.latitude.toFixed(6);
+            longitudeStatus.textContent = data.longitude.toFixed(6);
+            altitudeStatus.textContent = data.altitude.toFixed(2);
 
-  ws.onmessage = (event) => {
-    let msg;
-    try {
-      msg = JSON.parse(event.data);
-    } catch (e) {
-      return;
+            // Update drone marker on map
+            const newLatLng = new L.LatLng(data.latitude, data.longitude);
+            droneMarker.setLatLng(newLatLng);
+            droneMarker.setPopupContent(`Drone Position<br>Lat: ${data.latitude.toFixed(6)}<br>Lon: ${data.longitude.toFixed(6)}<br>Alt: ${data.altitude.toFixed(2)}m`).openPopup();
+            map.panTo(newLatLng); // Center map on drone
+
+            // Update flight path
+            flightPath.push(newLatLng);
+            flightPathPolyline.setLatLngs(flightPath);
+        }
+    };
+
+    ws.onclose = () => {
+        connectionStatus.textContent = '切断済み';
+        console.log('WebSocket disconnected');
+        setTimeout(connectWebSocket, 3000); // Attempt to reconnect after 3 seconds
+    };
+
+    ws.onerror = (err) => {
+        console.error('WebSocket error:', err);
+        connectionStatus.textContent = 'エラー';
+    };
+}
+
+function clearFlightPath() {
+    flightPath = [];
+    if (flightPathPolyline) {
+        flightPathPolyline.setLatLngs(flightPath);
     }
-    if (msg.type === "state") {
-      updateState(msg.state);
-    } else if (msg.type === "status") {
-      log(msg.message);
+}
+
+// --- Event Listeners for Commands ---
+connectBtn.addEventListener('click', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'connect' }));
+    } else {
+        connectWebSocket();
     }
-  };
-}
+});
 
-function send(obj) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    log("サーバー未接続のため送信できません");
-    return;
-  }
-  ws.send(JSON.stringify(obj));
-}
+armBtn.addEventListener('click', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'arm' }));
+    }
+});
 
-// ---- 状態表示の更新 -------------------------------------------------------
-function updateState(state) {
-  el("st-connected").textContent = state.connected ? "接続済み" : "未接続";
-  el("st-armed").textContent = state.armed ? "ARMED" : "DISARMED";
-  el("st-mode").textContent = state.mode;
-  el("st-lat").textContent = state.latitude.toFixed(6);
-  el("st-lon").textContent = state.longitude.toFixed(6);
-  el("st-alt").textContent = state.altitude.toFixed(2);
-  el("st-hdg").textContent = Math.round(state.heading);
+takeoffBtn.addEventListener('click', () => {
+    const altitude = parseFloat(takeoffAltitudeInput.value);
+    if (!isNaN(altitude) && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'takeoff', altitude: altitude }));
+    }
+});
 
-  updateMap(state);
-}
+landBtn.addEventListener('click', () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'land' }));
+    }
+});
 
-function updateMap(state) {
-  const lat = state.latitude;
-  const lon = state.longitude;
-  // 0,0 など無効な位置はスキップ
-  if (!state.connected || (lat === 0 && lon === 0)) {
-    return;
-  }
+gotoBtn.addEventListener('click', () => {
+    const latitude = parseFloat(gotoLatitudeInput.value);
+    const longitude = parseFloat(gotoLongitudeInput.value);
+    const altitude = parseFloat(gotoAltitudeInput.value);
+    if (!isNaN(latitude) && !isNaN(longitude) && !isNaN(altitude) && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'goto', latitude: latitude, longitude: longitude, altitude: altitude }));
+    }
+});
 
-  const pos = [lat, lon];
-  marker.setLatLng(pos);
-  marker.bindPopup(
-    `緯度: ${lat.toFixed(6)}<br>` +
-      `経度: ${lon.toFixed(6)}<br>` +
-      `高度: ${state.altitude.toFixed(2)} m`
-  );
+setModeBtn.addEventListener('click', () => {
+    const modeName = modeSelect.value;
+    if (modeName && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'mode', mode_name: modeName }));
+    }
+});
 
-  trackPoints.push(pos);
-  track.setLatLngs(trackPoints);
-  map.setView(pos);
-  hasFix = true;
-}
-
-function clearTrack() {
-  trackPoints = [];
-  track.setLatLngs([]);
-  hasFix = false;
-}
-
-// ---- ボタンイベント -------------------------------------------------------
-// 要素が見つからなくても 1 か所の失敗で全体が止まらないよう null ガードする
-function bind(id, handler) {
-  const node = el(id);
-  if (node) {
-    node.addEventListener("click", handler);
-  } else {
-    console.warn(`要素が見つかりません: #${id}`);
-  }
-}
-
-function bindControls() {
-  bind("btn-connect", () => send({ type: "connect" }));
-  bind("btn-arm", () => send({ type: "arm" }));
-  bind("btn-disarm", () => send({ type: "disarm" }));
-  bind("btn-land", () => send({ type: "land" }));
-
-  bind("btn-takeoff", () => {
-    const altitude = parseFloat(el("in-takeoff-alt").value);
-    send({ type: "takeoff", altitude });
-  });
-
-  bind("btn-goto", () => {
-    send({
-      type: "goto",
-      latitude: parseFloat(el("in-goto-lat").value),
-      longitude: parseFloat(el("in-goto-lon").value),
-      altitude: parseFloat(el("in-goto-alt").value),
-    });
-  });
-
-  bind("btn-mode", () => {
-    send({ type: "mode", mode: el("sel-mode").value });
-  });
-}
-
-// ---- 起動 -----------------------------------------------------------------
-// ボタン束縛で失敗しても WebSocket 接続は必ず開始する
-try {
-  bindControls();
-} catch (e) {
-  console.error("コントロールの初期化に失敗:", e);
-}
-connectWebSocket();
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', () => {
+    initMap();
+    connectWebSocket();
+});
