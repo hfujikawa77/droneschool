@@ -311,8 +311,8 @@ async def get_frontend():
 @app.get("/register_service")
 async def register_service():
     return {
-        "name": "Drone Web Control",
-        "description": "Drone Web Control — FastAPI + pymavlink web UI",
+        "name": "Drone Web App",
+        "description": "Drone Web App — FastAPI + pymavlink web UI",
         "icon": "mdi-drone",
         "company": "",
         "version": "1.0.0",

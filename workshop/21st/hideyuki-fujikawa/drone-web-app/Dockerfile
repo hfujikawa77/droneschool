@@ -1,8 +1,7 @@
-# Drone Web App — BlueOS Extension Dockerfile
-# WebSocket + avoid_iframes（直接ポートを開く）→ HostPort を 9999 に固定。
 FROM python:3.11-slim
 
 LABEL version="1.0.0"
+# WebSocket + avoid_iframes（直接ポートを開く）のため HostPort は固定
 LABEL permissions='{"ExposedPorts":{"9999/tcp":{}},"HostConfig":{"PortBindings":{"9999/tcp":[{"HostPort":"9999"}]},"ExtraHosts":["host.docker.internal:host-gateway"]}}'
 LABEL authors='[{"name":"Hideyuki Fujikawa","email":"hfujikawa77@gmail.com"}]'
 LABEL company='{"name":"","email":"","about":""}'
