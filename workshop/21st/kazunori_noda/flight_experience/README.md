@@ -45,6 +45,8 @@
 - 360度の回転が完了する前に、目標高度に到達した場合は、高度を維持しながら360度の回転まで行う。
 - 安全のため、離陸後、高度3m以上になってから回転を開始する。
 - 安全のため、120秒のプログラムタイムアウトを設ける。
+- 目標高度到達後、5秒間ホバリングして、その後RTLモードでホームポジションに着陸する。
+
 ![動作](./image/flight_pic.png)
 
 ## 3. 処理の流れ
@@ -54,16 +56,27 @@
 ↓<br>
 ③ GUIDED モードに設定<br>
 ↓<br>
-④ モーターアーム<br>
+④ ホームポジション確認(GLOBAL_POSITION_INT)<br>
 ↓<br>
-⑤ 離陸指示 (MAV_CMD_NAV_TAKEOFF)<br>
+⑤ モーターアーム<br>
 ↓<br>
-⑥ 上昇ループ<br>
-├─ 高度と向き監視(GLOBAL_POSITION_INT)を行いながら、Yaw回転量計算&指示(MAV_CMD_CONDITION_YAW)
+⑥ 離陸指示 (MAV_CMD_NAV_TAKEOFF)<br>
+↓<br>
+⑦ 上昇ループ<br>
+├─ 高度と向き監視(GLOBAL_POSITION_INT)を行いながら、Yaw回転量計算&指示(MAV_CMD_CONDITION_YAW)<br>
 ├─ 累積回転量を計算・更新<br>
 ├─ 360度回転完了 → Yaw 停止<br>
 └─ 目標高度到達＆360度回転完了でループ終了<br>
 └─タイムアウト(120秒)で終了<br>
+↓<br>
+⑧ 5秒ホバリング<br>
+↓<br>
+⑨ RTLモードに変更(MAV_CMD_NAV_RETURN_TO_LAUNCH)<br>
+↓<br>
+⑩ 下降ループ<br>
+  　高度監視(GLOBAL_POSITION_INT)を行い、高度が0.3m以下になるまで待つ<br>
+↓<br>
+⑪ 着陸、プログラム終了
 <br>
 
 - 使用したコマンド
@@ -73,9 +86,10 @@
 | `MAV_CMD_NAV_TAKEOFF` | 離陸・目標高度まで上昇 |
 | `GLOBAL_POSITION_INT` | 位置、高度、向き情報 |
 | `MAV_CMD_CONDITION_YAW` | 指定角度へ Yaw 回転 |
+| `MAV_CMD_NAV_RETURN_TO_LAUNCH` | RTLモード |
 
 ## 4. シミュレーション結果
-・目標高度20mの設定で、離陸
+・目標高度20mの設定で、離陸　→　目標高度到達後に5秒ホバリング　→ RTLモードで着陸
 
 ![動作](./image/simulation.gif)
 
