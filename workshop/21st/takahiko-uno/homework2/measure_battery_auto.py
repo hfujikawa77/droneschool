@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 """
 全自動フライト + 区間別バッテリー消費量計測スクリプト
+
 WayPointファイルで作成した、上昇、下降、南、西、北、東の四角形ミッションを自動で実行し、
 各区間ごとのバッテリー消費量(mAh)を計測する
 ※専用に作成したWayPointファイルが必要。 機体の向きは、常に北向きで飛行するようにしている
 
 前提:
   - 計測開始、終了のトリガは、サーボ9番のPWM信号を1900と1100に変化させることで本プログラム側から検知する
-    よって、サーボ9番が未使用チャンネルであること。使用済の場合、他の未使用チャンネルに変更し、W
-    ayPointファイルのCMD:183行の値とそろえること
-  - 専用に作成したWayPoint が Mission Planner等で機体にあらかじめ書き込まれていること
-    ホームポイントを参照するため、実行環境と同一のカレントディレクトリに .waypoints ファイルが存在すること
+    よって、サーボ9番が未使用チャンネルであること。使用済の場合、他の未使用チャンネルに変更し、
+    WayPointファイルのCMD:183行の値とそろえること
+  - 予め本飛行プログラム専用に作成した.waypointファイルは、実行環境と同一のカレントディレクトリに配置する
+    WayPointファイルは、ARM前に自動で書き込みされる
   - GPSフィックス、EKF、コンパス等の事前チェックに問題がないこと
 
 安全対策
@@ -29,13 +30,12 @@ WayPointファイルで作成した、上昇、下降、南、西、北、東の
   4. ARM完了後、コンソールで離陸(ミッション実行)の可否を確認
   5. 許可されたら、まずGUIDEDモードで垂直に10m上昇（低高度での水平移動を避ける安全対策）
      -> その後AUTOモードに切替
-     -> ミッション先頭の NAV_TAKEOFF により機体が離陸（既に10m上昇済み）
-     
+          
      以下は WayPointファイルの内容に依存する
      -> 10mで5秒待機
      -> 区間1: 上昇 (10m -> 25m)
      -> 区間2: 下降 (25m -> 10m)
-     -> 区間3〜7: 既存の四角形ミッション（各脚に開始/終了マーカー）
+     -> 区間3〜7: 既存の四角形ミッション各辺15m（各脚に開始/終了マーカー）
      -> 最終脚でホームポイント上空に帰還
      -> LOITER_UNLIM でホーム上空にてホバリング待機（自動着陸はしない）
 
@@ -45,7 +45,7 @@ WayPointファイルで作成した、上昇、下降、南、西、北、東の
   8. 確認が取れたら LAND モードに切り替えて着陸、ディスアームを検知して終了
 """
 
-from dronekit import connect, VehicleMode, LocationGlobal
+from dronekit import connect, VehicleMode, LocationGlobal, Command
 import time
 import csv
 import datetime
@@ -56,7 +56,14 @@ import os
 import glob
 
 # ==== 接続設定 ====
-CONNECTION_STRING = "tcp:192.168.3.210:5762"  # ※※※接続方法毎に変更※※※
+# ※※※接続方法毎に変更※※※
+#
+# WSL 上の SITL(sim_vehicle.py) + Windows の Mission Planner 併用時:
+CONNECTION_STRING = "tcp:127.0.0.1:5762"
+# Windowsから起動したMission Plannerの場合
+#CONNECTION_STRING = "tcp:192.168.3.210:5762"  # Windows側のIPアドレスに変更すること
+#MAVProxy が 14551 にも --out する構成の場合
+#CONNECTION_STRING = "udp:127.0.0.1:14551"      
 #BAUD = 57600
 
 # ==== WayPointファイル設定 ====
@@ -126,6 +133,50 @@ def wait_until_armable(vehicle):
     print("アーミング可能な状態になりました。")
 
 
+def set_param_safe(vehicle, name, value, retries=5, wait=2.0, tol=None):
+    """
+    パラメータを設定し、実際に反映されたか読み戻して検証する。
+
+    DroneKitは PARAM_SET 送信後に PARAM_VALUE 応答を待つが、応答の取りこぼしで
+    'timeout setting parameter' を出しても、値自体は機体に反映されていることが多い。
+    そこで固定sleep後に1回だけ読むのではなく、設定→数秒ポーリングで読み戻し、
+    目標値に一致するまでリトライする。
+
+    - 機体に存在しないパラメータ名の場合は無応答でタイムアウトするため、
+      事前に存在チェックし、無ければ明確に警告して None を返す。
+    戻り値: 反映が確認できた最終値(float)。存在しない/未反映の場合は None。
+    """
+    value = float(value)
+    if tol is None:
+        # 整数系(ビットマスク等)は完全一致、実数系は微小許容
+        tol = 0.0 if value.is_integer() else 0.5
+
+    # 存在チェック（ダウンロード直後でキャッシュ未反映の可能性も考慮して少し待つ）
+    deadline = time.time() + wait
+    while vehicle.parameters.get(name, None) is None and time.time() < deadline:
+        time.sleep(0.3)
+    if vehicle.parameters.get(name, None) is None:
+        print("  [%s] このパラメータは機体に存在しません。パラメータ名を確認してください"
+              "（ファーム更新で改名された可能性）。" % name)
+        return None
+
+    for attempt in range(1, retries + 1):
+        try:
+            vehicle.parameters[name] = value
+        except Exception as e:
+            print("  [%s] 設定送信で例外: %s（試行 %d/%d）" % (name, e, attempt, retries))
+        deadline = time.time() + wait
+        while time.time() < deadline:
+            cur = vehicle.parameters.get(name, None)
+            if cur is not None and abs(float(cur) - value) <= tol:
+                return float(cur)
+            time.sleep(0.3)
+        print("  [%s] 反映を確認できず再試行します（試行 %d/%d, 現在値=%s）。" % (
+            name, attempt, retries, vehicle.parameters.get(name, None)))
+
+    return vehicle.parameters.get(name, None)
+
+
 def ensure_auto_options(vehicle):
     """
     ArduPilot Copterはデフォルトで、AUTOモード中に地上からミッションを開始する際、
@@ -143,34 +194,46 @@ def ensure_auto_options(vehicle):
 
     if int(current) != new_value:
         print("AUTO_OPTIONS を %d -> %d に変更します（スロットル操作なしでの自動離陸を許可）。" % (
-            current, new_value))
-        vehicle.parameters['AUTO_OPTIONS'] = new_value
-        # パラメータ反映待ち
-        time.sleep(2)
-        readback = vehicle.parameters.get('AUTO_OPTIONS', None)
-        print("AUTO_OPTIONS 設定後の値: %s" % readback)
+            int(current), new_value))
+        result = set_param_safe(vehicle, 'AUTO_OPTIONS', new_value)
+        if result is not None:
+            print("AUTO_OPTIONS 設定後の値: %d" % int(result))
+        else:
+            print("[警告] AUTO_OPTIONS を設定できませんでした。スロットル操作なしでは"
+                  "自動離陸しない可能性があります。")
     else:
-        print("AUTO_OPTIONS は既に必要なビットが立っています（値=%d）。" % current)
+        print("AUTO_OPTIONS は既に必要なビットが立っています（値=%d）。" % int(current))
 
 
 def ensure_rtl_altitude(vehicle):
     """
     強制RTL時の上昇高度を RTL_ALTITUDE[m] に設定する。
-    ArduPilotの RTL_ALT パラメータは単位が cm のため、100倍して設定する。
-    """
-    target_cm = RTL_ALTITUDE * 100
-    current = vehicle.parameters.get('RTL_ALT', None)
 
-    if current is None or int(current) != target_cm:
-        print("RTL_ALT を %s -> %d (=%dm) に設定します。" % (
-            current, target_cm, RTL_ALTITUDE))
-        vehicle.parameters['RTL_ALT'] = target_cm
-        # パラメータ反映待ち
-        time.sleep(2)
-        readback = vehicle.parameters.get('RTL_ALT', None)
-        print("RTL_ALT 設定後の値: %s (cm)" % readback)
+    ArduPilot 4.6 以降はパラメータ名/単位が刷新され、RTL高度は
+      RTL_ALT_M （単位: m）
+    になった。旧ファームは
+      RTL_ALT   （単位: cm）
+    のため、機体に存在する方を自動判別して、それぞれの単位で設定する。
+    """
+    # 新FW(RTL_ALT_M, m単位)を優先。無ければ旧FW(RTL_ALT, cm単位)。
+    if vehicle.parameters.get('RTL_ALT_M', None) is not None:
+        name, target, unit = 'RTL_ALT_M', float(RTL_ALTITUDE), 'm'
     else:
-        print("RTL_ALT は既に %dm(%dcm) に設定されています。" % (RTL_ALTITUDE, target_cm))
+        name, target, unit = 'RTL_ALT', float(RTL_ALTITUDE * 100), 'cm'
+
+    current = vehicle.parameters.get(name, None)
+    if current is not None and abs(float(current) - target) < 0.5:
+        print("%s は既に %s%s (=%dm) に設定されています。" % (name, target, unit, RTL_ALTITUDE))
+        return
+
+    print("%s を %s -> %s%s (=%dm) に設定します。" % (
+        name, current, target, unit, RTL_ALTITUDE))
+    result = set_param_safe(vehicle, name, target)
+    if result is not None:
+        print("%s 設定後の値: %s (%s)" % (name, result, unit))
+    else:
+        print("[警告] %s を設定できませんでした。強制RTL時の上昇高度が"
+              "意図通りにならない可能性があります。" % name)
 
 
 def read_home_from_waypoints(path):
@@ -355,10 +418,105 @@ def guided_takeoff(vehicle, target_alt):
         time.sleep(1)
 
 
-def switch_to_auto(vehicle):
-    print("モードを AUTO に切り替えます。ミッション先頭の NAV_TAKEOFF により自動離陸します。")
+def read_mission_from_waypoints(path):
+    """
+    WayPointファイル(QGC WPL 110形式)を読み、DroneKitのCommandリストに変換する。
+    各行はタブ区切りで
+      seq current frame command p1 p2 p3 p4 lat(x) lon(y) alt(z) autocontinue
+    の12列。1行目はヘッダ("QGC WPL 110")。seq=0行(ホーム)も含めて読み込む
+    （アップロード時に機体側がseqを振り直し、seq0はホームとして扱われる）。
+    """
+    missionlist = []
+    with open(path, "r", encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            line = line.strip()
+            if i == 0:
+                if not line.startswith("QGC WPL 110"):
+                    raise ValueError(
+                        "対応していないWayPointファイル形式です"
+                        "（1行目が 'QGC WPL 110' ではありません）: %s" % path)
+                continue
+            if not line:
+                continue
+            arr = line.split("\t")
+            if len(arr) < 12:
+                continue
+            ln_current = int(arr[1])
+            ln_frame = int(arr[2])
+            ln_command = int(arr[3])
+            ln_param1 = float(arr[4])
+            ln_param2 = float(arr[5])
+            ln_param3 = float(arr[6])
+            ln_param4 = float(arr[7])
+            ln_lat = float(arr[8])
+            ln_lon = float(arr[9])
+            ln_alt = float(arr[10])
+            ln_autocontinue = int(arr[11])
+            # Command(target_system, target_component, seq, frame, command, current,
+            #         autocontinue, param1..4, x(lat), y(lon), z(alt))
+            cmd = Command(0, 0, 0, ln_frame, ln_command, ln_current, ln_autocontinue,
+                          ln_param1, ln_param2, ln_param3, ln_param4,
+                          ln_lat, ln_lon, ln_alt)
+            missionlist.append(cmd)
+    return missionlist
+
+
+def upload_mission(vehicle, path):
+    """
+    WayPointファイルを機体に書き込む（Mission Planner の「書き込み(Write)」相当）。
+    既存ミッションを消去してからファイルの内容をアップロードする。
+    ARM前・離陸前に呼び出すこと（AUTO切替時の 'init failed' を根本的に防ぐ）。
+    """
+    missionlist = read_mission_from_waypoints(path)
+    if not missionlist:
+        raise ValueError("WayPointファイルに有効なコマンド行がありません: %s" % path)
+
+    cmds = vehicle.commands
+    print("WayPointファイルを機体に書き込みます: %s（%d 項目）" % (path, len(missionlist)))
+    cmds.clear()
+    for cmd in missionlist:
+        cmds.add(cmd)
+    cmds.upload()   # 送信完了までブロックする
+    print("WayPointファイルの書き込みを送信しました。")
+
+
+def verify_mission_loaded(vehicle):
+    """
+    機体にミッションが書き込まれているかをARM前に検証する。
+
+    AUTOモードの init は mission.num_commands() > 1（＝ホーム以外に最低1コマンド）
+    でないと失敗し、機体側が "Mode change to Auto failed: init failed" を出す。
+    DroneKitの vehicle.commands.count はホーム(seq=0)を含まないコマンド数なので、
+    count >= 1 であればAUTO実行に足るミッションが存在する。
+    離陸してから初めて気づくと危険なので、ARM前にここで確認して落とす。
+    """
+    cmds = vehicle.commands
+    cmds.download()
+    cmds.wait_ready()
+    count = cmds.count
+    print("機体に書き込まれているミッションコマンド数（ホーム除く）: %d" % count)
+    if count < 1:
+        raise ValueError(
+            "機体にミッションが書き込まれていません（コマンド数=%d）。\n"
+            "  AUTOモードへ切り替えられないため中止します。\n"
+            "  Mission Planner等で WayPoint を機体に『書き込み』済みか、\n"
+            "  接続先(%s)が書き込んだ機体と同一か確認してください。" % (count, CONNECTION_STRING))
+    return count
+
+
+def switch_to_auto(vehicle, timeout=10.0):
+    print("モードを AUTO に切り替えます。")
     vehicle.mode = VehicleMode("AUTO")
+    # AUTO init が失敗するとモードはGUIDEDのまま戻る。永久ループを避けるため
+    # タイムアウトで失敗を検知し、明確に例外を投げる（機体側は "init failed" を出す）。
+    deadline = time.time() + timeout
     while vehicle.mode.name != "AUTO":
+        if time.time() > deadline:
+            raise RuntimeError(
+                "AUTOモードへの切り替えに失敗しました（現在モード=%s, %.0f秒待機）。\n"
+                "  機体側の 'Mode change to Auto failed: init failed' は、通常\n"
+                "  ミッション未書き込み、または地上ARM済みでミッション先頭が離陸コマンド"
+                "でない場合に発生します。" % (vehicle.mode.name, timeout))
         time.sleep(0.5)
     print("AUTOモードに入りました。ミッションを実行します。")
 
@@ -369,6 +527,90 @@ def disarm_vehicle(vehicle):
     while vehicle.armed:
         time.sleep(1)
     print("ディスアームしました。")
+
+
+def draw_banner(message_lines, term_title=None):
+    """目立つバナーを描画する共通関数。
+
+    ・ANSIエスケープで赤背景／黄背景・太字にして画面から浮き上がらせる
+    ・上下を全角バーで囲み、大量のログに埋もれても視認できるようにする
+    ・term_title を渡すと端末（タブ／ウィンドウ）のタイトルも書き換え、
+      別ウィンドウ作業中でも気づけるようにする
+
+    message_lines: (text, style) のリスト。style は "head"(赤) / "sub"(黄)。
+    ANSIエスケープ非対応（パイプ出力など）の場合は装飾なしで表示する。
+    """
+    use_ansi = sys.stdout.isatty()
+    bar = "█" * 56
+    if use_ansi:
+        head = "\033[1;97;41m"   # 太字・白文字・赤背景
+        sub = "\033[1;30;103m"   # 太字・黒文字・黄背景
+        rst = "\033[0m"
+        if term_title is not None:
+            sys.stdout.write("\033]0;%s\a" % term_title)
+    else:
+        head = sub = rst = ""
+
+    styles = {"head": head, "sub": sub}
+    lines = ["", "%s%s%s" % (head, bar, rst)]
+    for text, style in message_lines:
+        lines.append("%s%s%s" % (styles.get(style, head), text, rst))
+    lines.append("%s%s%s" % (head, bar, rst))
+    lines.append("")
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.flush()
+
+
+def render_takeoff_prompt():
+    """離陸確認プロンプトを目立つバナーで表示する。"""
+    draw_banner(
+        [("  ▶▶▶ 離陸してミッション（計測）を実行しますか？  ◀◀◀  ", "head"),
+         ("      space または Enter = 実行 ／ 他の文字 + Enter = キャンセル  ", "sub")],
+        term_title="!!! 離陸確認待ち !!!",
+    )
+
+
+def render_landing_prompt():
+    """着陸確認プロンプトを目立つバナーで表示する。"""
+    draw_banner(
+        [("  ▶▶▶ 着陸を実行しますか？  ◀◀◀  ", "head"),
+         ("      space または Enter = 着陸 ／ 他の文字 + Enter = 保留  ", "sub")],
+        term_title="!!! 着陸確認待ち !!!",
+    )
+
+
+def update_wait_counter(elapsed_sec):
+    """「応答待ち N 秒経過」を同じ行で更新表示する（改行しない）。
+
+    行頭へ戻り（\\r）、行末までクリアしてから上書きするため、秒数が
+    その場でカウントアップして見える。ANSI非対応時は装飾・クリアを省く。
+    """
+    use_ansi = sys.stdout.isatty()
+    if use_ansi:
+        sub = "\033[1;30;103m"
+        rst = "\033[0m"
+        clr = "\033[K"  # カーソル位置から行末までクリア
+    else:
+        sub = rst = clr = ""
+    sys.stdout.write("\r%s%s      （応答待ち %d 秒経過）  %s" % (clr, sub, int(elapsed_sec), rst))
+    sys.stdout.flush()
+
+
+def render_low_battery_warning(reason):
+    """バッテリー低下による強制RTL発動を目立つバナーで通知する（確認は不要）。"""
+    draw_banner(
+        [("  ⚠⚠⚠ バッテリー低下を検知 — 強制RTLします（確認不要） ⚠⚠⚠  ", "head"),
+         ("      検知内容: %s  " % reason, "sub"),
+         ("      RTL_ALTITUDE (%dm) まで上昇してホームへ帰還します  " % RTL_ALTITUDE, "sub")],
+        term_title="!!! 強制RTL発動 !!!",
+    )
+
+
+def clear_terminal_title():
+    """端末タイトルを既定へ戻す（確認待機の終了時に呼ぶ）。"""
+    if sys.stdout.isatty():
+        sys.stdout.write("\033]0;\a")
+        sys.stdout.flush()
 
 
 def save_csv(results):
@@ -444,7 +686,7 @@ def main():
 
             if trigger_reason is not None:
                 state["low_battery_rtl"] = True
-                print("\n[警告] バッテリー低下を検知（%s）。強制的にRTLします。" % trigger_reason)
+                render_low_battery_warning(trigger_reason)
                 vehicle.mode = VehicleMode("RTL")
 
     def servo_output_listener(self, name, message):
@@ -556,6 +798,17 @@ def main():
 
         ensure_auto_options(vehicle)
         ensure_rtl_altitude(vehicle)
+
+        # ---- ARM前にWayPointファイルを機体へ書き込む ----
+        # Mission Planner等での手動書き込み忘れ／書き込み先の取り違えを防ぐため、
+        # 本プログラムが毎回ファイルの内容を機体へ書き込む（既存ミッションは上書き）。
+        upload_mission(vehicle, WAYPOINT_FILE)
+
+        # ---- 書き込めたか検証（AUTO init failed の予防） ----
+        # ミッションが無い状態で離陸すると、AUTO切替時に必ず失敗して10mでハマるため、
+        # 離陸させる前にここで確認して中止する。
+        verify_mission_loaded(vehicle)
+
         arm_vehicle(vehicle)
 
         # ---- ホームポイントをWayPointファイルNo.0の緯度経度に強制設定（高度は実測値） ----
@@ -566,19 +819,23 @@ def main():
         # ARM完了後は1秒間隔でビープ音を鳴らしつつ y/n 入力を待つ。
         # 入力を待っている間にディスアーム状態に変化した場合は、その場で終了する。
         print("\nARMが完了しました（プロペラは低速回転中の可能性があります）。")
-        print("\n離陸してミッション（計測）を実行しますか？\n（space または Enter で実行、"
-              "その他の文字を入力してEnterでキャンセル）: ", end="", flush=True)
+        # 見逃し防止: 目立つバナーで確認を促す（定期再表示は行わない）。
+        render_takeoff_prompt()
+        prompt_start = time.time()
+        update_wait_counter(0.0)  # 経過秒はこの行を同じ位置で更新し続ける
         takeoff_confirmed = None
         last_beep = 0.0
         while takeoff_confirmed is None:
             # y/n 入力前にディスアーム状態へ変化したら終了
             if not vehicle.armed:
+                clear_terminal_title()
                 print("\nディスアーム状態を検知しました。処理を終了します。")
                 vehicle.close()
                 return
 
             # 低バッテリーで強制RTLが発動したら離陸せず終了
             if state["low_battery_rtl"]:
+                clear_terminal_title()
                 print("\nバッテリー低下により離陸を中止します。RTL/ディスアームを待機します。")
                 while vehicle.armed:
                     time.sleep(1)
@@ -593,6 +850,9 @@ def main():
                 sys.stdout.flush()
                 last_beep = now
 
+            # 経過秒数を同じ位置で更新（改行しない）
+            update_wait_counter(now - prompt_start)
+
             # 標準入力を非ブロッキングで確認（0.1秒待ち）
             # space または Enter（空入力）= 実行(yes)、それ以外 = キャンセル(no)
             ready, _, _ = select.select([sys.stdin], [], [], 0.1)
@@ -600,6 +860,7 @@ def main():
                 answer = sys.stdin.readline().strip()
                 takeoff_confirmed = (answer == "")
 
+        clear_terminal_title()
         print("\n ")
         if not takeoff_confirmed:
             print("離陸を中止します。")
@@ -648,12 +909,15 @@ def main():
             return
 
         # ---- 着陸confirmationを求める ----
-        landing_prompt = ("着陸を実行しますか？（space または Enter で着陸、"
-                          "その他の文字を入力してEnterで保留）: ")
-        print(landing_prompt, end="", flush=True)
+        # 見逃し防止: 目立つバナーで確認を促す（定期再表示は行わない）。
+        prompt_start = time.time()
+        render_landing_prompt()
+        update_wait_counter(0.0)  # 経過秒はこの行を同じ位置で更新し続ける
+        last_beep = 0.0
         while True:
             # 待機中に低バッテリー強制RTLが発動したら着陸確認を打ち切る
             if state["low_battery_rtl"]:
+                clear_terminal_title()
                 print("\nバッテリー低下によりRTL中です。着陸・ディスアームを待機します。")
                 while vehicle.armed:
                     time.sleep(1)
@@ -663,6 +927,16 @@ def main():
                 vehicle.close()
                 return
 
+            # 1秒間隔でビープ音（端末ベル）を鳴らす
+            now = time.time()
+            if now - last_beep >= 1.0:
+                sys.stdout.write("\a")
+                sys.stdout.flush()
+                last_beep = now
+
+            # 経過秒数を同じ位置で更新（改行しない）
+            update_wait_counter(now - prompt_start)
+
             ready, _, _ = select.select([sys.stdin], [], [], 0.5)
             if not ready:
                 continue
@@ -671,9 +945,11 @@ def main():
             if answer == "":
                 break
             else:
-                print("着陸を保留しています。着陸するときは space または Enter を入力してください。")
-                print(landing_prompt, end="", flush=True)
+                print("\n着陸を保留しています。着陸するときは space または Enter を入力してください。")
+                render_landing_prompt()
+                update_wait_counter(now - prompt_start)
 
+        clear_terminal_title()
         print("LANDモードに切り替えます。")
         vehicle.mode = VehicleMode("LAND")
         while vehicle.mode.name != "LAND":
@@ -689,6 +965,21 @@ def main():
         print("安全のためディスアームして終了します。")
         disarm_vehicle(vehicle)
         print("ディスアームして終了しました。CSVファイルは生成していません。")
+        vehicle.close()
+        return
+
+    except RuntimeError as e:
+        # AUTO切替失敗など、空中で発生しうるエラー。機体が飛行中の可能性があるため
+        # ディスアームせず、安全にRTLで帰還・着陸させてから終了する。
+        print("\nエラーが発生しました: %s" % e)
+        if vehicle.armed:
+            print("機体が飛行中の可能性があるため、安全のためRTLで帰還・着陸させます。")
+            vehicle.mode = VehicleMode("RTL")
+            while vehicle.armed:
+                time.sleep(1)
+            print("ディスアームを確認しました。RTL完了です。")
+        save_csv(results)
+        print("結果を %s に保存しました。" % OUTPUT_CSV)
         vehicle.close()
         return
 
