@@ -53,11 +53,11 @@ if __name__ == '__main__':
     downloaded_mission = []
 
     # ウェイポイントの追加
-    add_waypoint(downloaded_mission, lat=35.8791145, lon=140.3394037, alt=5)
-    add_waypoint(downloaded_mission, lat=35.8791145, lon=140.3394037, alt=5)
-    add_waypoint(downloaded_mission, lat=35.8789602, lon=140.3390872, alt=5)
-    add_waypoint(downloaded_mission, lat=35.8787711, lon=140.3393823, alt=5)
-    add_waypoint(downloaded_mission, lat=35.8789406, lon=140.3396344, alt=5)
+    add_waypoint(downloaded_mission, lat=35.8791732, lon=140.3357399, alt=5)
+    add_waypoint(downloaded_mission, lat=35.8791732, lon=140.3357399, alt=5)
+    add_waypoint(downloaded_mission, lat=35.8792134, lon=140.3356292, alt=5)
+    add_waypoint(downloaded_mission, lat=35.8790966, lon=140.3355628, alt=5)
+    add_waypoint(downloaded_mission, lat=35.8790612, lon=140.3356768, alt=5)
     print("ミッションへのウェイポイント追加完了")
     print_mission(downloaded_mission)
 
