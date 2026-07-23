@@ -101,16 +101,11 @@ kazunorinoda/drone-web-app:latest
 
 ```json
 {
-  "ExposedPorts": {
-    "9999/tcp": {}
-  },
-  "HostConfig": {
-    "ExtraHosts": ["host.docker.internal:host-gateway"],
-    "PortBindings": {
-      "9999/tcp": [{"HostIp": "0.0.0.0", "HostPort": "9999"}]
-    },
-    "NetworkMode": "bridge"
-  }
+	"ExposedPorts": { "9999/tcp": {} },
+    "HostConfig": {
+        "PortBindings": { "9999/tcp": [{ "HostPort": "9999" }] },
+        "ExtraHosts": ["host.docker.internal:host-gateway"]
+    }
 }
 ```
  
