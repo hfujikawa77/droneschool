@@ -31,6 +31,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
           PR_URL: ${{ github.event.pull_request.html_url || github.event.issue.html_url }}
           ACTION: ${{ github.event.action }}
+          EVENT_NAME: ${{ github.event_name }}
           MERGED: ${{ github.event.pull_request.merged }}
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
@@ -38,13 +39,16 @@ jobs:
             echo "DISCORD_WEBHOOK が空のため通知をスキップします" >&2
             exit 0
           fi
-          # アクション種別を日本語ラベルに変換
-          case "$ACTION" in
-            opened) LABEL="オープン" ;;
-            edited) LABEL="編集" ;;
-            closed)
+          # イベント種別・アクション種別を日本語ラベルに変換
+          case "$EVENT_NAME:$ACTION" in
+            pull_request_target:opened) LABEL="オープン" ;;
+            pull_request_target:edited) LABEL="編集" ;;
+            pull_request_target:closed)
               if [ "$MERGED" = "true" ]; then LABEL="マージ"; else LABEL="クローズ"; fi
               ;;
+            pull_request_review:submitted) LABEL="レビュー" ;;
+            pull_request_review_comment:created) LABEL="レビューコメント" ;;
+            issue_comment:created) LABEL="コメント" ;;
             *) LABEL="$ACTION" ;;
           esac
           curl -H "Content-Type: application/json" \
