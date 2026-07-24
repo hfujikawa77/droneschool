@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drone Web GCS</title>
+
+    <!-- Leaflet CDN（確実に地図が出る） -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Drone Web GCS</h1>
+
+        <div class="panels">
+            <div class="status-panel">
+                <h2>ステータス</h2>
+                <div class="status-item"><span>接続:</span> <strong id="connectionStatus">未接続</strong></div>
+                <div class="status-item"><span>アーム:</span> <strong id="armedStatus">未アーム</strong></div>
+                <div class="status-item"><span>モード:</span> <strong id="modeStatus">UNKNOWN</strong></div>
+                <div class="status-item"><span>緯度:</span> <strong id="latitudeStatus">0.0</strong></div>
+                <div class="status-item"><span>経度:</span> <strong id="longitudeStatus">0.0</strong></div>
+                <div class="status-item"><span>高度:</span> <strong id="altitudeStatus">0.0</strong> m</div>
+                <div class="status-item"><span>バッテリー:</span> <strong id="batteryStatus">0.0</strong> V</div>
+            </div>
+
+            <div class="control-panel">
+                <h2>コントロール</h2>
+
+                <button id="connectBtn" class="btn-primary">接続</button>
+                <button id="armBtn" class="btn-warning">アーム</button>
+                <button id="landBtn" class="btn-danger">着陸</button>
+
+                <div class="command-group">
+                    <label>離陸高度 (m)</label>
+                    <input type="number" id="takeoffAltitude" value="10">
+                    <button id="takeoffBtn" class="btn-primary">離陸</button>
+                </div>
+
+                <div class="command-group">
+                    <label>緯度</label>
+                    <input type="number" id="gotoLatitude" step="0.000001">
+
+                    <label>経度</label>
+                    <input type="number" id="gotoLongitude" step="0.000001">
+
+                    <label>高度 (m)</label>
+                    <input type="number" id="gotoAltitude" value="20">
+
+                    <button id="gotoBtn" class="btn-primary">移動</button>
+                </div>
+
+                <div class="command-group">
+                    <label>モード</label>
+                    <select id="modeSelect">
+                        <option value="GUIDED">GUIDED</option>
+                        <option value="LOITER">LOITER</option>
+                        <option value="RTL">RTL</option>
+                        <option value="AUTO">AUTO</option>
+                    </select>
+                    <button id="setModeBtn" class="btn-primary">モード設定</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="map"></div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
