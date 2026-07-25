@@ -121,7 +121,9 @@ DEPARTURE_DISTANCE_M = 15.0  # 出発地点からこの距離[m]以上離れた�
 DEFAULT_TRANSFER_SEC = 10.0  # 荷物載せ替えの所要時間[秒]
 
 # ==== 初期位置の設定（各機体をルートの出発地に配置する） ====
-DEFAULT_START_TOLERANCE = 15.0  # 出発地に居るとみなす距離[m]
+DEFAULT_START_TOLERANCE = 25.0   # 出発地に居るとみなす距離[m]
+# 機体は到着後の停止までに惰性で流れる（ボートは水上で15m程度流れる実測値）。
+# 港・駅の広さも考えると、この程度の余裕を見て「出発地にいる」と判定する。
 START_POSITION_ALT = 10.0       # SITLの初期位置の高度[m]（地面の標高相当）
 REBOOT_WAIT = 12.0              # 再起動後、再接続を試みるまでの待ち[秒]
 REBOOT_RECONNECT_TIMEOUT = 90.0  # 再起動後に再接続できるまでの待ち[秒]
@@ -166,27 +168,34 @@ class Leg:
 
 
 def build_legs(args):
-    """課題のルート定義（実行順）を組み立てる。
+    """運行するレグ（実行順）を組み立てる。
 
     --legs で一部だけを指定した場合は、その機体だけを運行する（動作確認用）。
+    --return では、配送先から出発地へ戻す回送として、順序とルートを逆にする。
     """
     all_legs = [
         Leg("ローバー", args.rover_port, kind="rover", needs_takeoff=False, arm_mode="HOLD"),
         Leg("ボート", args.boat_port, kind="boat", needs_takeoff=False, arm_mode="HOLD"),
         Leg("コプター", args.copter_port, kind="copter", needs_takeoff=True, arm_mode="GUIDED"),
     ]
-    if not args.legs:
-        return all_legs
+    if args.legs:
+        selected = [name.strip().lower() for name in args.legs.split(",") if name.strip()]
+        known = [leg.kind for leg in all_legs]
+        for name in selected:
+            if name not in known:
+                raise SystemExit(
+                    "--legs に不正な機体種別が指定されました: '%s'（指定可能: %s）"
+                    % (name, ", ".join(known)))
+        # 指定順ではなく、課題のルート順を維持する
+        all_legs = [leg for leg in all_legs if leg.kind in selected]
 
-    selected = [name.strip().lower() for name in args.legs.split(",") if name.strip()]
-    known = [leg.kind for leg in all_legs]
-    for name in selected:
-        if name not in known:
-            raise SystemExit(
-                "--legs に不正な機体種別が指定されました: '%s'（指定可能: %s）"
-                % (name, ", ".join(known)))
-    # 指定順ではなく、課題のルート順を維持する
-    return [leg for leg in all_legs if leg.kind in selected]
+    if args.return_flight:
+        # 回送: コプター → ボート → ローバー の順に、各ルートを逆向きに運行する
+        all_legs.reverse()
+        for leg in all_legs:
+            leg.route_def = routes.reversed_route(leg.route_def)
+
+    return all_legs
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +241,22 @@ def detect_gateway_host():
     except (OSError, ValueError):
         pass
     return None
+
+
+def resolve_direction(args):
+    """運行方向（配送 / 回送 / 自動判定）を決める。
+
+    既定は "auto"（各機体が配送の出発地にいるかどうかで決める）。
+    --delivery / --return を付けた場合はその方向に固定する。
+    """
+    if args.return_flight and args.force_delivery:
+        raise SystemExit("--return と --delivery は同時に指定できません。")
+    if args.return_flight:
+        args.direction = "return"
+    elif args.force_delivery:
+        args.direction = "delivery"
+    else:
+        args.direction = "auto"
 
 
 def resolve_connection_settings(args):
@@ -675,6 +700,46 @@ def wait_disarmed(master, timeout):
 # ---------------------------------------------------------------------------
 # ミッション
 # ---------------------------------------------------------------------------
+
+def decide_direction(args, outbound_legs):
+    """各機体の現在位置から、配送ミッションか回送ミッションかを決める。
+
+    判定は「その機体が配送の出発地にいるか、いないか」だけで行う。
+      3機とも出発地にいる      → 配送（滑川駅 → … → セブンイレブン）
+      出発地にいない機体がある → 回送（配送先にいるとみなして出発地へ戻す）
+    位置が取得できない機体は「出発地にいない」として扱う。
+    """
+    print_banner("各機体の位置から運行方向を判定します")
+    at_start = []
+    for leg in outbound_legs:
+        master = connect_vehicle(args.host, leg.port, args.connect_timeout)
+        try:
+            position = get_position(master)
+        finally:
+            master.close()
+
+        start = leg.route_def.start
+        if position is None:
+            print_step("%s: 位置を取得できませんでした（出発地にいない扱い）。" % leg.name)
+            at_start.append(False)
+            continue
+
+        offset = get_distance_metres(position[0], position[1], start[0], start[1])
+        inside = offset <= args.start_tolerance
+        print_step("%s: 出発地(%s)から %.1f m → %s"
+                   % (leg.name, leg.route_def.origin_name, offset,
+                      "出発地にいる" if inside else "出発地にいない"))
+        at_start.append(inside)
+
+    if all(at_start):
+        print_step("3機とも出発地にいます → 配送ミッションを実行します。")
+        return False
+    if any(at_start):
+        print_step("一部の機体が出発地にいません → 回送ミッション（機体を戻す）を実行します。")
+    else:
+        print_step("3機とも出発地にいません → 回送ミッション（機体を戻す）を実行します。")
+    return True
+
 
 def ensure_start_position(master, leg, args):
     """機体をそのルートの出発地に配置する（初期状態の設定）。接続オブジェクトを返す。
@@ -1153,25 +1218,25 @@ def finish_leg(master, leg, keep_copter_airborne):
 # 荷物の載せ替え
 # ---------------------------------------------------------------------------
 
-def wait_cargo_transfer(seconds, confirm):
-    """荷物の載せ替えを待つ。
+def wait_cargo_transfer(seconds, confirm, work_name="荷物の載せ替え"):
+    """荷物の載せ替えを待つ（回送モードでは次の機体の出発準備の待ち時間になる）。
 
     confirm=True の場合はオペレーターの Enter 入力を待つ（実運用向け）。
-    そうでない場合は seconds 秒のカウントダウンで載せ替え作業を模擬する。
+    そうでない場合は seconds 秒のカウントダウンで作業を模擬する。
     """
-    print_banner("荷物の載せ替え中")
+    print_banner("%s中" % work_name)
     if confirm:
-        input("  載せ替えが完了したら Enter を押してください（次の機体が出発します）: ")
-        print("  載せ替え完了。次の機体を出発させます。")
+        input("  %sが完了したら Enter を押してください（次の機体が出発します）: " % work_name)
+        print("  %s完了。次の機体を出発させます。" % work_name)
         return
 
     remaining = float(seconds)
     while remaining > 0:
-        sys.stdout.write("\r  載せ替え残り %4.1f 秒 ..." % remaining)
+        sys.stdout.write("\r  %s 残り %4.1f 秒 ..." % (work_name, remaining))
         sys.stdout.flush()
         time.sleep(0.5)
         remaining -= 0.5
-    sys.stdout.write("\r  載せ替え完了。次の機体を出発させます。      \n")
+    sys.stdout.write("\r  %s完了。次の機体を出発させます。      \n" % work_name)
     sys.stdout.flush()
 
 
@@ -1306,6 +1371,12 @@ def parse_args():
     parser.add_argument("--legs", default=None,
                         help="運行する機体をカンマ区切りで指定（rover,boat,copter）。"
                              "省略時は3機すべてをリレー運行する（動作確認用）")
+    parser.add_argument("--return", dest="return_flight", action="store_true",
+                        help="回送に固定する。配送先にいる機体を、コプター → ボート → ローバー の順に"
+                             "各ルートを逆向きに運行して出発地へ戻す"
+                             "（既定は機体の位置から自動判定）")
+    parser.add_argument("--delivery", dest="force_delivery", action="store_true",
+                        help="配送に固定する（既定は機体の位置から自動判定）")
     parser.add_argument("--no-upload-missions", dest="upload_missions",
                         action="store_false", default=True,
                         help="ミッションを生成・アップロードしない"
@@ -1325,12 +1396,13 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
-    args = parse_args()
-    resolve_connection_settings(args)
-    legs = build_legs(args)
-
-    print_banner("複数機体リレー運行（ローバー → ボート → コプター）")
+def print_route_summary(args, legs):
+    """これから運行するルート一覧を表示する。"""
+    if args.return_flight:
+        print_banner("複数機体の回送（コプター → ボート → ローバー）")
+        print("  配送先にいる機体を、各ルートを逆向きに運行して出発地へ戻します。")
+    else:
+        print_banner("複数機体リレー運行（ローバー → ボート → コプター）")
     print("  接続先ホスト: %s%s" % (args.host,
                                 "  (--mission-planner)" if args.mission_planner else ""))
     for i, leg in enumerate(legs, start=1):
@@ -1342,13 +1414,22 @@ def main():
     else:
         print("  ミッションは各機体に書き込み済みである前提です（--no-upload-missions）。")
 
+
+def main():
+    args = parse_args()
+    resolve_direction(args)
+    resolve_connection_settings(args)
+    legs = build_legs(args)
+
     # --export-waypoints: ミッションをファイルに書き出すだけで終了する（機体に接続しない）
     if args.export_waypoints:
+        print_route_summary(args, legs)
         print_banner("ミッションを .waypoints 形式で書き出します")
         os.makedirs(args.export_waypoints, exist_ok=True)
         for leg in legs:
             path = os.path.join(args.export_waypoints,
-                                "mission_%s.waypoints" % leg.route_def.key)
+                                "mission_%s%s.waypoints"
+                                % (leg.route_def.key, "_return" if args.return_flight else ""))
             routes.export_waypoints(leg.route_def, path)
             print_step("%s → %s" % (leg.route, path))
         return
@@ -1357,6 +1438,13 @@ def main():
         # 指定の host/ポートで MAVLink が流れていない場合は、応答する組み合わせを探す
         if args.autodetect:
             autodetect_connection(args, legs)
+
+        # 配送か回送かを、各機体が出発地にいるかどうかで決める
+        if args.direction == "auto":
+            args.return_flight = decide_direction(args, legs)
+            legs = build_legs(args)
+
+        print_route_summary(args, legs)
 
         if not args.skip_precheck:
             precheck(legs, args)
@@ -1368,17 +1456,20 @@ def main():
                               upload_mission=args.upload_missions and args.skip_precheck)
             results.append((leg, elapsed))
 
-            # 最後のレグ（コプター）の後は載せ替え相手がいないので待たない
+            # 最後のレグの後は待たない（載せ替える相手／次に出す機体がいない）
             if i < len(legs):
-                wait_cargo_transfer(args.transfer_sec, args.confirm)
+                wait_cargo_transfer(args.transfer_sec, args.confirm,
+                                    "次の機体の出発準備" if args.return_flight
+                                    else "荷物の載せ替え")
 
-        print_banner("全ルートの運行が完了しました")
+        print_banner("全機体の回送が完了しました" if args.return_flight
+                     else "全ルートの運行が完了しました")
         total = 0.0
         for leg, elapsed in results:
             print("  %s %s %6.1f 秒" % (pad(leg.name, 12), pad(leg.route, 34), elapsed))
             total += elapsed
         print("  ----")
-        print("  飛行・走行時間の合計: %.1f 秒（載せ替え時間は含みません）" % total)
+        print("  飛行・走行時間の合計: %.1f 秒（レグ間の待ち時間は含みません）" % total)
 
     except KeyboardInterrupt:
         print("\n手動で中断されました。")
