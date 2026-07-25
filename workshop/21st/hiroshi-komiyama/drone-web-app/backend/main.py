@@ -3,6 +3,7 @@ import json
 import math
 import os
 import queue
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -38,7 +39,7 @@ class DroneController:
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_DIR = BASE_DIR / "frontend"
+FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 
 app = FastAPI(title="Drone Web Controller")
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
@@ -62,6 +63,7 @@ command_queue = queue.Queue()
 current_vehicle = None
 current_target_system = None
 current_target_component = None
+MODE_MAP = {}  # Explicit mode map (set at connection time)
 mav_thread = None
 mav_worker_running = False
 active_move_command = None
@@ -134,6 +136,21 @@ async def index():
     return FileResponse(FRONTEND_DIR / "index.html")
 
 
+@app.get("/register_service")
+async def register_service():
+    """BlueOS service registration endpoint."""
+    return {
+        "name": "Drone Web App",
+        "description": "FastAPI-based drone web application for MAVLink control",
+        "icon": "mdi-drone",
+        "company": "",
+        "version": "1.0.0",
+        "webpage": "",
+        "api": "/docs",
+        "avoid_iframes": True,  # WebSocket: open in new window (direct http://<IP>:<PORT>/)
+    }
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -194,7 +211,7 @@ def start_mavlink_worker():
 
 
 def get_connection_string() -> str:
-    return os.getenv("MAVLINK_CONNECTION") or os.getenv("MAV_ENDPOINT") or "tcp:127.0.0.1:5762"
+    return os.getenv("MAV_ENDPOINT") or "udpout:host.docker.internal:14550"
 
 
 def resolve_command_target(vehicle):
@@ -240,16 +257,14 @@ def send_takeoff_command(vehicle, target_system, target_component, altitude: flo
 
 
 def get_mode_name(vehicle):
-    if vehicle is None:
+    global MODE_MAP
+    if vehicle is None or not MODE_MAP:
         return "UNKNOWN"
     try:
-        mapping = vehicle.mode_mapping()
-        if not mapping:
-            return "UNKNOWN"
         custom_mode = getattr(vehicle, "mode", None)
         if custom_mode is None:
             return "UNKNOWN"
-        for name, value in mapping.items():
+        for name, value in MODE_MAP.items():
             if value == custom_mode:
                 return name.upper()
     except Exception:
@@ -258,7 +273,8 @@ def get_mode_name(vehicle):
 
 
 def ensure_guided(vehicle):
-    if vehicle is None:
+    global MODE_MAP
+    if vehicle is None or not MODE_MAP:
         return False
     try:
         if getattr(vehicle, "mode", None) is not None:
@@ -269,7 +285,12 @@ def ensure_guided(vehicle):
         pass
 
     try:
-        vehicle.set_mode("GUIDED")
+        if "GUIDED" not in MODE_MAP:
+            print(f"GUIDED mode not in MODE_MAP: {list(MODE_MAP.keys())}")
+            return False
+        mode_id = MODE_MAP["GUIDED"]
+        vehicle.set_mode(mode_id)
+        print(f"GUIDED transition: set_mode({mode_id})")
     except Exception as exc:
         print(f"GUIDED transition failed: {exc}")
     return True
@@ -353,16 +374,41 @@ def send_stop_command(vehicle):
 
 
 def mavlink_worker():
-    global current_vehicle, current_target_system, current_target_component, mav_worker_running, active_move_command, last_move_send, mav_thread
+    global current_vehicle, current_target_system, current_target_component, mav_worker_running, active_move_command, last_move_send, mav_thread, MODE_MAP
 
     connection_string = get_connection_string()
-    print(f"Connecting to {connection_string}")
+    print(f"[MAVLINK] Connecting to {connection_string}", file=sys.stderr, flush=True)
 
     try:
         vehicle = mavutil.mavlink_connection(connection_string)
+        print(f"[MAVLINK] Connection object created, waiting for heartbeat...", file=sys.stderr, flush=True)
         vehicle.wait_heartbeat(timeout=5)
+        print(f"[MAVLINK] Heartbeat received, searching for autopilot HEARTBEAT...", file=sys.stderr, flush=True)
+        
+        # Identify autopilot from HEARTBEAT and initialize explicit MODE_MAP
+        hb = None
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            msg = vehicle.recv_match(type="HEARTBEAT", blocking=True, timeout=1)
+            if msg:
+                print(f"[MAVLINK] Got HEARTBEAT: type={msg.type}, autopilot={msg.autopilot}", file=sys.stderr, flush=True)
+                if msg.autopilot != mavlink_common.MAV_AUTOPILOT_INVALID:
+                    hb = msg
+                    break
+        
+        if hb is None:
+            print("[MAVLINK] No autopilot heartbeat received", file=sys.stderr, flush=True)
+            update_state({"connected": False})
+            set_status("No autopilot heartbeat")
+            mav_worker_running = False
+            return
+        
+        # Generate explicit mode map from autopilot type
+        MODE_MAP = mavutil.mode_mapping_byname(hb.type) or {}
+        print(f"[MAVLINK] Autopilot type={hb.type}, modes={list(MODE_MAP.keys())}", file=sys.stderr, flush=True)
+        
     except Exception as exc:
-        print(f"MAVLink connect failed: {exc}")
+        print(f"[MAVLINK] Connect failed: {exc}", file=sys.stderr, flush=True)
         update_state({"connected": False})
         set_status("MAVLink connection failed")
         mav_worker_running = False
@@ -417,11 +463,19 @@ def mavlink_worker():
                     if getattr(msg, "system_status", None) is not None:
                         armed = bool(msg.base_mode & mavlink_common.MAV_MODE_FLAG_SAFETY_ARMED)
                         update_state({"armed": armed})
+                        
+                        # Extract mode from HEARTBEAT custom_mode
                         mode_name = "UNKNOWN"
                         try:
-                            mode_name = get_mode_name(vehicle)
-                        except Exception:
-                            pass
+                            custom_mode = getattr(msg, "custom_mode", None)
+                            if custom_mode is not None and MODE_MAP:
+                                for name, value in MODE_MAP.items():
+                                    if value == custom_mode:
+                                        mode_name = name.upper()
+                                        break
+                                print(f"[MODE] custom_mode={custom_mode}, name={mode_name}", file=sys.stderr, flush=True)
+                        except Exception as e:
+                            print(f"[MODE_ERROR] {e}", file=sys.stderr, flush=True)
                         update_state({"mode": mode_name})
 
             while not command_queue.empty():
@@ -502,13 +556,7 @@ def mavlink_worker():
                             0,
                             0,
                         )
-                        update_state({"mode": "LAND"})
-                        try:
-                            vehicle.set_mode("GUIDED")
-                        except Exception:
-                            pass
-                        update_state({"mode": "GUIDED"})
-                        set_status("Land requested and mode reset to GUIDED")
+                        set_status("Land requested")
                     except Exception as exc:
                         set_status(f"Land failed: {exc}")
 
@@ -546,12 +594,19 @@ def mavlink_worker():
                 elif command_type == "mode":
                     try:
                         active_move_command = None
-                        target_mode = "GUIDED"
-                        vehicle.set_mode(target_mode)
-                        update_state({"mode": target_mode})
-                        set_status(f"Mode set to {target_mode}")
+                        target_mode = command.get("mode", "GUIDED").upper()
+                        if target_mode not in MODE_MAP:
+                            set_status(f"Mode {target_mode} not available")
+                            print(f"[MODE_CMD] Requested mode not in MAP: {target_mode}, available: {list(MODE_MAP.keys())}", file=sys.stderr, flush=True)
+                        else:
+                            mode_id = MODE_MAP[target_mode]
+                            vehicle.set_mode(mode_id)
+                            update_state({"mode": target_mode})
+                            set_status(f"Mode set to {target_mode}")
+                            print(f"[MODE_CMD] Mode changed to {target_mode} (id={mode_id})", file=sys.stderr, flush=True)
                     except Exception as exc:
                         set_status(f"Mode change failed: {exc}")
+                        print(f"[MODE_CMD_ERROR] {exc}", file=sys.stderr, flush=True)
 
                 elif command_type in {"moveForward", "moveBack", "moveLeft", "moveRight"}:
                     active_move_command = command_type
