@@ -220,6 +220,15 @@ class VehicleController:
             if not msg:
                 continue
 
+            # SIM_SPEEDUPで実時間あたりのメッセージ生成レートが上がるため、
+            # バッファに溜まった分を読み捨てて常に最新の位置情報を使う
+            while True:
+                newer = self.master.recv_match(
+                    type='GLOBAL_POSITION_INT', blocking=False)
+                if newer is None:
+                    break
+                msg = newer
+
             dist = self._calculate_distance(msg.lat / 1e7, msg.lon / 1e7, target_lat, target_lon)
 
             if abs(dist - last_dist) > 5:
@@ -234,8 +243,6 @@ class VehicleController:
             else:
                 count = 0
 
-            time.sleep(0.1)
-
     def close(self):
         """接続を閉じる"""
         if self.master:
@@ -248,7 +255,7 @@ def main():
     print("複数機体順次制御: ローバー → ボート → コプター")
     print("=" * 60)
 
-    sitl_host = os.environ.get('SITL_HOST', '127.0.0.1')
+    sitl_host = os.environ.get('SITL_HOST', '192.168.3.38')
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     vehicles = [
