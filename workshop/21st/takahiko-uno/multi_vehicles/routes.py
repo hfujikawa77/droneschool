@@ -139,6 +139,27 @@ ROUTES = {
 }
 
 
+def reversed_route(route):
+    """ルートを逆向きにした Route を返す（配送先から出発地へ戻す回送用）。
+
+    ウェイポイントの順序と出発地／目的地の名前を入れ替えるだけで、
+    速度・高度・着陸の有無は配送時と同じ設定を使う。
+    ローバーは同じ一般道を逆走し、ボートは同じ航路を下り、
+    コプターは配送先から離陸して元の出発地に着陸する。
+    """
+    return Route(
+        key=route.key,
+        origin_name=route.destination_name,
+        destination_name=route.origin_name,
+        waypoints=list(reversed(route.waypoints)),
+        cruise_speed=route.cruise_speed,
+        takeoff_alt=route.takeoff_alt,
+        cruise_alt=route.cruise_alt,
+        land_at_goal=route.land_at_goal,
+        lean_angle_max=route.lean_angle_max,
+    )
+
+
 # ---------------------------------------------------------------------------
 # ミッション生成
 # ---------------------------------------------------------------------------
