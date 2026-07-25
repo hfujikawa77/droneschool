@@ -237,14 +237,23 @@ python3 multi_vehicles_relay.py --speedup 10
 SITL 起動時に指定してもよい（bat / sim_vehicle.py どちらも `--speedup 10`）。
 その場合は Mission Planner の表示も含めてシミュレーション全体が10倍速で動く。
 
-### 複数機体を同じフォルダから起動しないこと
+### 複数機体で eeprom.bin を共有した場合
 
-SITL はパラメータを**作業フォルダの `eeprom.bin`（固定名）** に保存する。
-3機を同じフォルダから起動すると、3機がこのファイルを共有してパラメータを壊し合い、
-例えばコプターの `ACRO_BAL_ROLL` が異常値になって
-`PreArm: Check ACRO_BAL_ROLL/PITCH` でアームできなくなる（実際に発生した）。
+SITL はパラメータを**作業フォルダの `eeprom.bin`（固定名・インスタンス番号なし）** に保存する。
+3機を同じフォルダから起動すると、この1ファイルを3機で共有する。
 
-bat から起動する場合は `start /D` で機体ごとに作業フォルダを分ける。
+SITL は起動時にこのファイルをメモリへ読み込み、以後の読み出しはメモリから行うため
+**運行中は問題が起きない**（ミッションもパラメータも機体間で混ざらない）。
+問題が出るのは次回起動時で、3機の書き込みが混ざったファイルを読むため、
+本来と違う値が入ることがある。実際に、コプターの `ACRO_BAL_ROLL` が 25.018 になり
+`PreArm: Check ACRO_BAL_ROLL/PITCH` でアームできない状態が発生した。
+
+プログラム側の対処として、この症状を検出したら
+`ACRO_BAL_ROLL/PITCH` を上限内（既定値 1.0）に戻してアームを続行する
+（ACROモード専用のパラメータで、この運行の飛行には影響しない）。
+そのため**講習用のオリジナル bat のままでも運行できる**。
+
+根本的に避けるなら、bat から起動する場合は `start /D` で機体ごとに作業フォルダを分ける。
 
 ```bat
 if not exist "%~dp0sitl_rover" mkdir "%~dp0sitl_rover"
@@ -312,7 +321,8 @@ start "Rover_0" /D "%~dp0sitl_rover" "%SITL%\ArduRover.exe" ^
 |------|------|
 | 最初のミッションアップロードが `MAV_MISSION_NO_SPACE` で拒否される（sysid 非依存。Rover / Copter 双方で再現） | `routes.upload_mission()` が3秒待って最大4回まで再試行 |
 | `AUTO` などへのモード変更が反映されない（位置推定の準備待ち） | `set_mode()` が2秒間隔で最大30秒まで再送。拒否理由（COMMAND_ACK / STATUSTEXT）も表示 |
-| アームできない（プリアームチェック未通過） | `arm_vehicle()` が3秒間隔で最大60秒まで再送。機体のメッセージをそのまま表示するので原因が分かる（例: `PreArm: Check ACRO_BAL_ROLL/PITCH` は `ACRO_BAL_ROLL > ATC_ANG_RLL_P` のときに出る。既定値に戻すと解消） |
+| アームできない（プリアームチェック未通過） | `arm_vehicle()` が3秒間隔で最大60秒まで再送。機体のメッセージをそのまま表示するので原因が分かる |
+| `PreArm: Check ACRO_BAL_ROLL/PITCH` でアームできない（複数機体で eeprom.bin を共有した場合） | `repair_prearm_params()` が `ACRO_BAL_ROLL/PITCH` を上限内に戻してアームを続行 |
 | 機体がまだ起動しておらず接続拒否（`Connection refused`） | `--connect-timeout` 秒までは接続を待ち直す。時間内に繋がらない場合は原因の候補を表示 |
 | 初期位置の設定で再起動した直後、TCP接続はできても通信が始まらずすぐ切れる（`EOF on TCP socket` / `Connection reset by peer`） | `reconnect_after_reboot()` が HEARTBEAT を2回受けて安定を確認しつつ接続を張り直す。位置が取れるまで最大180秒、接続を作り直しながら待つ |
 

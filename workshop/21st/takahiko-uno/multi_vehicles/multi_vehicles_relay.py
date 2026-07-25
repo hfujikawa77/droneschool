@@ -110,6 +110,7 @@ PORT_OFFSET_CANDIDATES = (0, 2, 3, -2)
 HEARTBEAT_TIMEOUT = 30.0     # 接続時のHEARTBEAT待ち[秒]
 ARM_TIMEOUT = 60.0           # アーム完了までの待ち[秒]（プリアームチェック通過待ちを含む）
 ARM_RETRY_INTERVAL = 3.0     # アームコマンドの再送間隔[秒]
+ACRO_BALANCE_DEFAULT = 1.0   # ACRO_BAL_ROLL/PITCH の既定値（不整合の修復に使う）
 MODE_TIMEOUT = 30.0          # モード変更の確認待ち[秒]（この間コマンドを再送する）
 MODE_RETRY_INTERVAL = 2.0    # モード変更コマンドの再送間隔[秒]
 TAKEOFF_TIMEOUT = 60.0       # 離陸（目標高度到達）待ち[秒]
@@ -618,7 +619,8 @@ def arm_vehicle(master):
     print_step("アームします。")
     deadline = time.time() + ARM_TIMEOUT
     last_sent = 0.0
-    reported = set()
+    reported = set()    # 表示済みの機体メッセージ
+    repaired = set()    # 修復を試みた機体メッセージ
 
     while time.time() < deadline:
         now = time.time()
@@ -638,6 +640,10 @@ def arm_vehicle(master):
                 hint = prearm_hint(text)
                 if hint:
                     print_step(hint)
+                # 既知のパラメータ不整合が原因なら直して、アームの再送を続ける
+                if text not in repaired:
+                    repaired.add(text)
+                    repair_prearm_params(master, text)
             continue
         if master.motors_armed():
             print_step("アーム完了")
@@ -649,15 +655,42 @@ def arm_vehicle(master):
 
 
 def prearm_hint(text):
-    """機体のプリアーム失敗メッセージに対して、原因と対処の見当を返す。"""
+    """機体のプリアーム失敗メッセージに対して、原因の見当を返す。"""
     if "ACRO_BAL_ROLL" in text or "ACRO_BAL_PITCH" in text:
-        return ("→ ACRO_BAL_ROLL/PITCH が ATC_ANG_RLL_P/ATC_ANG_PIT_P より大きいと拒否されます"
-                "（ACROモード専用のパラメータで、この運行には影響しません）。\n"
-                "      SITL を複数機体で同じフォルダから起動していると、機体間で eeprom.bin を"
-                "共有してパラメータが壊れ、この症状が出ます。\n"
-                "      機体ごとに作業フォルダを分けて起動し直す（bat なら start /D で指定）か、"
-                "ACRO_BAL_ROLL を 1 に戻してください。")
+        return ("→ ACRO_BAL_ROLL/PITCH が ATC_ANG_RLL_P/ATC_ANG_PIT_P より大きいと拒否されます。\n"
+                "      複数機体のSITLを同じフォルダから起動すると eeprom.bin を共有するため、"
+                "次回起動時にパラメータが壊れてこの症状が出ます。")
     return None
+
+
+def repair_prearm_params(master, text):
+    """アームを妨げている既知のパラメータ不整合を修正する。修正したら True。
+
+    ACRO_BAL_ROLL / ACRO_BAL_PITCH は ATC_ANG_RLL_P / ATC_ANG_PIT_P 以下でなければ
+    アームできない。ACROモード専用のパラメータで、この運行（GUIDED/AUTO/LAND）の
+    飛行には影響しないため、上限内（既定値 1.0）に戻して運行を続けられるようにする。
+
+    複数機体のSITLを同じフォルダから起動して eeprom.bin を共有している環境では、
+    機体間でパラメータが混ざってこの症状が出るため、その場で直せるようにしている。
+    """
+    if "ACRO_BAL_ROLL" not in text and "ACRO_BAL_PITCH" not in text:
+        return False
+
+    repaired = False
+    for balance_name, gain_name in (("ACRO_BAL_ROLL", "ATC_ANG_RLL_P"),
+                                    ("ACRO_BAL_PITCH", "ATC_ANG_PIT_P")):
+        balance = get_param(master, balance_name)
+        gain = get_param(master, gain_name)
+        if balance is None or gain is None or balance <= gain:
+            continue
+        target = min(ACRO_BALANCE_DEFAULT, gain)
+        if set_param(master, balance_name, target) is None:
+            print_step("[警告] %s を %.1f に修正できませんでした。" % (balance_name, target))
+            continue
+        print_step("%s が %s(%.1f) を超えていたため %.3f → %.1f に修正しました。"
+                   % (balance_name, gain_name, gain, balance, target))
+        repaired = True
+    return repaired
 
 
 def disarm_vehicle(master, timeout=30.0):
