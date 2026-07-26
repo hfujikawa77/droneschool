@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 複数機体リレー運行スクリプト（ローバー → ボート → コプター）
+※回送対応版（コプター → ボート → ローバー の順に配送先から出発地へ戻す）
 
 課題要件:
   ルート毎に決められた種類の機体を運行する。
@@ -63,8 +64,8 @@
   # 通常はこれだけ（接続先は自動判定）
   python3 multi_vehicles_relay.py
 
-  # 接続先を明示する場合
-  python3 multi_vehicles_relay.py --host 192.168.3.210 --rover-port 5762
+  # 接続先を明示する場合（IPは機体が動いているPCのもの）
+  python3 multi_vehicles_relay.py --host 192.168.x.x --rover-port 5762
 
   # Mission Planner でSITLを起動した構成に合わせる（ポート +2 ・Windows側IPの自動判定）
   python3 multi_vehicles_relay.py --mission-planner
