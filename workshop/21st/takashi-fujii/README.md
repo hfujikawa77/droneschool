@@ -20,4 +20,5 @@
 
 ## インストールと使用方法
 - 提出対象アプリの詳細は [drone-web-app/README.md](/home/ardupilot/GitHub/droneschool/workshop/21st/takashi-fujii/drone-web-app/README.md) に記載
+- Docker イメージ名は `kod82fhi/drone-web-app:latest`
 - Docker イメージ名、BlueOS へのインストール方法、ローカル起動方法も同 README を参照
