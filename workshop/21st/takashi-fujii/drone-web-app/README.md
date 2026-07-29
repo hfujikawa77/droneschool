@@ -68,19 +68,19 @@ docker buildx create --use
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   --provenance=false \
-  -t <dockerhub-username>/drone-web-app:latest \
+  -t kod82fhi/drone-web-app:latest \
   --push .
 ```
 
 Docker イメージ名:
 
 ```text
-<dockerhub-username>/drone-web-app:latest
+kod82fhi/drone-web-app:latest
 ```
 
 ### 2. BlueOS Extensions で登録
 - `Create from scratch` を選ぶ
-- Docker image に `<dockerhub-username>/drone-web-app`
+- Docker image に `kod82fhi/drone-web-app`
 - Tag に `latest`
 - JSON editor に Dockerfile の `permissions` LABEL と同じ値を入れる
 
