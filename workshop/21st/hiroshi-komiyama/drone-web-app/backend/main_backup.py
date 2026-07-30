@@ -210,22 +210,9 @@ def start_mavlink_worker():
     mav_thread = app.state.executor.submit(mavlink_worker)
 
 
-#def get_connection_string() -> str:
-#    return os.getenv("MAV_ENDPOINT") or "udpout:host.docker.internal:14550"
-#def get_connection_string() -> str:
-#    return "udp:host.docker.internal:14550"
-
-#def get_connection_string() -> str:
-#    return os.environ.get(
-#        "MAV_ENDPOINT",
-#        "udpout:host.docker.internal:14550"
-#    )
-
 def get_connection_string() -> str:
-    return os.environ.get(
-        "MAV_ENDPOINT",
-        "udpout:host.docker.internal:14550"
-    )
+    return os.getenv("MAV_ENDPOINT") or "udpout:host.docker.internal:14550"
+
 
 def resolve_command_target(vehicle):
     target_system = current_target_system
@@ -395,50 +382,20 @@ def mavlink_worker():
     try:
         vehicle = mavutil.mavlink_connection(connection_string)
         print(f"[MAVLINK] Connection object created, waiting for heartbeat...", file=sys.stderr, flush=True)
-
-#----
-        print(
-            "[MAVLINK] Waiting for ArduPilot heartbeat...",
-            file=sys.stderr,
-            flush=True,
-        )
-
+        vehicle.wait_heartbeat(timeout=5)
+        print(f"[MAVLINK] Heartbeat received, searching for autopilot HEARTBEAT...", file=sys.stderr, flush=True)
+        
+        # Identify autopilot from HEARTBEAT and initialize explicit MODE_MAP
         hb = None
-        deadline = time.time() + 15
-
+        deadline = time.time() + 10
         while time.time() < deadline:
-            msg = vehicle.recv_match(
-                type="HEARTBEAT",
-                blocking=True,
-                timeout=1
-            )
-
-            if not msg:
-                continue
-            
-            print(
-                f"[HB] "
-                f"sysid={msg.get_srcSystem()} "
-                f"compid={msg.get_srcComponent()} "
-                f"type={msg.type} "
-                f"autopilot={msg.autopilot}",
-                file=sys.stderr,
-                flush=True,
-            )
-
-            if msg.autopilot == mavlink_common.MAV_AUTOPILOT_ARDUPILOTMEGA:
-                hb = msg
-                break
-            
-        if hb is None:
-            print(
-                "[MAVLINK] No ArduPilot heartbeat",
-                file=sys.stderr,
-                flush=True
-            )
-            return
-        #----
-
+            msg = vehicle.recv_match(type="HEARTBEAT", blocking=True, timeout=1)
+            if msg:
+                print(f"[MAVLINK] Got HEARTBEAT: type={msg.type}, autopilot={msg.autopilot}", file=sys.stderr, flush=True)
+                if msg.autopilot != mavlink_common.MAV_AUTOPILOT_INVALID:
+                    hb = msg
+                    break
+        
         if hb is None:
             print("[MAVLINK] No autopilot heartbeat received", file=sys.stderr, flush=True)
             update_state({"connected": False})
@@ -468,14 +425,14 @@ def mavlink_worker():
             vehicle.target_system,
             vehicle.target_component,
             mavutil.mavlink.MAV_DATA_STREAM_POSITION,
-            10,
+            4,
             1,
         )
         vehicle.mav.request_data_stream_send(
             vehicle.target_system,
             vehicle.target_component,
             mavutil.mavlink.MAV_DATA_STREAM_EXTRA1,
-            10,
+            4,
             1,
         )
     except Exception as exc:
