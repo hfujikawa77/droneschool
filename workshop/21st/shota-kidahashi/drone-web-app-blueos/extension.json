@@ -1,0 +1,7 @@
+{
+  "id": "drone-web-app-blueos",
+  "name": "Drone Web App (BlueOS)",
+  "version": "1.0.0",
+  "description": "宿題3用 FastAPI + Web UI Extension",
+  "dockerComposeFile": "docker-compose.yml"
+}
