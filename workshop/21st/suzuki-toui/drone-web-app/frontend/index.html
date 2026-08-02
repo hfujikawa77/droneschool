@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ドローンWeb制御アプリケーション</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- ステータスパネル -->
+        <div class="panel status-panel">
+            <h2>ステータス</h2>
+            <div class="status-item">
+                <span class="label">接続状態:</span>
+                <span id="connected-status" class="value">未接続</span>
+            </div>
+            <div class="status-item">
+                <span class="label">アーム状態:</span>
+                <span id="armed-status" class="value">未アーム</span>
+            </div>
+            <div class="status-item">
+                <span class="label">フライトモード:</span>
+                <span id="mode-status" class="value">UNKNOWN</span>
+            </div>
+            <div class="status-item">
+                <span class="label">緯度:</span>
+                <span id="latitude-status" class="value">0.000000</span>
+            </div>
+            <div class="status-item">
+                <span class="label">経度:</span>
+                <span id="longitude-status" class="value">0.000000</span>
+            </div>
+            <div class="status-item">
+                <span class="label">高度:</span>
+                <span id="altitude-status" class="value">0.00m</span>
+            </div>
+            <div class="status-item">
+                <span class="label">ヘディング:</span>
+                <span id="heading-status" class="value">0°</span>
+            </div>
+        </div>
+
+        <!-- コントロールパネル -->
+        <div class="panel control-panel">
+            <h2>コントロール</h2>
+            
+            <div class="control-group">
+                <button id="connect-btn" class="btn btn-primary">機体に接続</button>
+            </div>
+
+            <div class="control-group">
+                <button id="arm-btn" class="btn btn-warning">アーム</button>
+                <button id="disarm-btn" class="btn btn-warning">ディスアーム</button>
+            </div>
+
+            <div class="control-group">
+                <label>離陸高度(m):</label>
+                <input type="number" id="takeoff-altitude" value="10" min="1" max="100">
+                <button id="takeoff-btn" class="btn btn-success">離陸</button>
+            </div>
+
+            <div class="control-group">
+                <button id="land-btn" class="btn btn-danger">着陸</button>
+            </div>
+
+            <div class="control-group">
+                <label>GoTo目標地点:</label>
+                <input type="number" id="goto-latitude" placeholder="緯度" step="0.000001">
+                <input type="number" id="goto-longitude" placeholder="経度" step="0.000001">
+                <input type="number" id="goto-altitude" placeholder="高度(m)" value="10" min="1">
+                <button id="goto-btn" class="btn btn-info">移動</button>
+            </div>
+
+            <div class="control-group">
+                <label>フライトモード:</label>
+                <select id="mode-select">
+                    <option value="GUIDED">GUIDED</option>
+                    <option value="AUTO">AUTO</option>
+                    <option value="RTL">RTL</option>
+                    <option value="LOITER">LOITER</option>
+                    <option value="STABILIZE">STABILIZE</option>
+                </select>
+                <button id="mode-btn" class="btn btn-info">設定</button>
+            </div>
+
+            <div class="message-box" id="message-box"></div>
+        </div>
+
+        <!-- 地図 -->
+        <div id="map" class="map"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
