@@ -20,6 +20,16 @@ vehicle = None
 drone_connected = False
 MODE_MAP = {}
 REVERSE_MODE_MAP = {}
+
+def command_name(command_id):
+    """COMMAND_ACK の command 番号を MAV_CMD の名前にする"""
+    entry = mavutil.mavlink.enums['MAV_CMD'].get(command_id)
+    return entry.name if entry else str(command_id)
+
+def result_name(result_id):
+    """COMMAND_ACK の result 番号を MAV_RESULT の名前にする"""
+    entry = mavutil.mavlink.enums['MAV_RESULT'].get(result_id)
+    return entry.name if entry else str(result_id)
 drone_status = {
     "connected": False,
     "armed": False,
@@ -238,6 +248,14 @@ async def websocket_endpoint(websocket: WebSocket):
                                     # Map mode id -> name using REVERSE_MODE_MAP populated at connect
                                     mode_name = REVERSE_MODE_MAP.get(msg.custom_mode, "UNKNOWN")
                                     drone_status["mode"] = mode_name
+                                elif msg.get_type() == 'COMMAND_ACK':
+                                    # 機体が受理しなかったコマンドを画面に知らせる（例: Rover に離陸・着陸を送った場合は UNSUPPORTED）
+                                    if msg.result not in (mavutil.mavlink.MAV_RESULT_ACCEPTED,
+                                                          mavutil.mavlink.MAV_RESULT_IN_PROGRESS):
+                                        await websocket.send_json({
+                                            "type": "error",
+                                            "message": f"コマンドが受理されませんでした: {command_name(msg.command)} ({result_name(msg.result)})"
+                                        })
 
                                 # Send updated status to frontend ONLY when there's a new message
                                 await websocket.send_json(drone_status)

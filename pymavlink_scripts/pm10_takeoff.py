@@ -1,4 +1,5 @@
 from pymavlink import mavutil
+import sys
 import time
 
 # 接続
@@ -31,6 +32,22 @@ master.mav.command_long_send(
     master.target_system, master.target_component,
     mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
     0, 0, 0, 0, 0, 0, 0, target_altitude)
+
+# 離陸コマンドの結果（COMMAND_ACK）を確認する
+# 受理されない例: Rover / ボートでは UNSUPPORTED、固定翼では FAILED
+ack = None
+end = time.time() + 3
+while ack is None and time.time() < end:
+    msg = master.recv_match(type='COMMAND_ACK', blocking=True, timeout=1)
+    if msg is not None and msg.command == mavutil.mavlink.MAV_CMD_NAV_TAKEOFF:
+        ack = msg
+accepted = (mavutil.mavlink.MAV_RESULT_ACCEPTED, mavutil.mavlink.MAV_RESULT_IN_PROGRESS)
+if ack is None or ack.result not in accepted:
+    result = mavutil.mavlink.enums['MAV_RESULT'][ack.result].name if ack else 'ACKなし'
+    print(f"離陸コマンドが受理されませんでした: {result}")
+    print("この機体は離陸に対応していない可能性があります（Rover / ボートなど）")
+    sys.exit(1)
+print("離陸コマンドが受理されました")
 
 # メッセージレート変更: GLOBAL_POSITION_INT(33)を10Hzで受信
 master.mav.command_long_send(

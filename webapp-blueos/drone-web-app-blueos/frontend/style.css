@@ -116,3 +116,7 @@ button:disabled {
         margin-top: 5px;
     }
 }
+.message-area {
+    color: #c0392b;
+    font-weight: bold;
+}

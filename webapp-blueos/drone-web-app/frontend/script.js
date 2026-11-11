@@ -4,6 +4,8 @@ const modeStatus = document.getElementById('modeStatus');
 const latitudeStatus = document.getElementById('latitudeStatus');
 const longitudeStatus = document.getElementById('longitudeStatus');
 const altitudeStatus = document.getElementById('altitudeStatus');
+const messageArea = document.getElementById('messageArea');
+let messageTimer = null;
 
 const connectBtn = document.getElementById('connectBtn');
 const armBtn = document.getElementById('armBtn');
@@ -53,6 +55,12 @@ function connectWebSocket() {
         if (data.type === 'status') {
             // This is a general status message from backend
             console.log('Backend Status:', data.message);
+        } else if (data.type === 'error') {
+            // The vehicle rejected a command (e.g. takeoff on a Rover): show it on the page for 10 seconds
+            console.warn('Backend Error:', data.message);
+            messageArea.textContent = data.message;
+            clearTimeout(messageTimer);
+            messageTimer = setTimeout(() => { messageArea.textContent = ''; }, 10000);
         } else {
             // This is drone telemetry data
             armedStatus.textContent = data.armed ? 'アーム済み' : '未アーム';

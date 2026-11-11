@@ -1,3 +1,4 @@
+import sys
 import time
 from pymavlink import mavutil
 
@@ -7,7 +8,17 @@ master: mavutil.mavfile = mavutil.mavlink_connection(
 master.wait_heartbeat()
 
 # GUIDEDモードに設定
-master.set_mode(4)
+# モード番号は機体種別ごとに違う（GUIDED は Copter が 4、Rover / ボートが 15）ので、mode_mapping() で調べる
+mode = 'GUIDED'
+master.set_mode_apm(master.mode_mapping()[mode])
+
+# モードが変わったことを確認する（5秒で変わらなければ終了する）
+end = time.time() + 5
+while master.flightmode != mode and time.time() < end:
+    master.recv_match(type='HEARTBEAT', blocking=True, timeout=1)
+if master.flightmode != mode:
+    print(f"モードを {mode} に変更できませんでした（現在のモード: {master.flightmode}）")
+    sys.exit(1)
 
 # 目標の緯度・経度、高度を設定
 target_lat = 35.8787276

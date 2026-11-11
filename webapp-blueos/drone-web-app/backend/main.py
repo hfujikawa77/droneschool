@@ -26,6 +26,17 @@ drone_status = {
     "heading": 0,
 }
 
+def command_name(command_id):
+    """COMMAND_ACK の command 番号を MAV_CMD の名前にする"""
+    entry = mavutil.mavlink.enums['MAV_CMD'].get(command_id)
+    return entry.name if entry else str(command_id)
+
+def result_name(result_id):
+    """COMMAND_ACK の result 番号を MAV_RESULT の名前にする"""
+    entry = mavutil.mavlink.enums['MAV_RESULT'].get(result_id)
+    return entry.name if entry else str(result_id)
+
+
 # --- MAVLink Helper Functions (adapted from CLI app) ---
 async def request_data_streams():
     if not vehicle or not drone_connected:
@@ -181,8 +192,9 @@ async def websocket_endpoint(websocket: WebSocket):
                                 drone_status["altitude"] = msg.relative_alt / 1000.0 # mm to meters (home-relative, matches GCS)
                                 drone_status["heading"] = msg.hdg / 100.0 # centidegrees to degrees
                             elif msg.get_type() == 'HEARTBEAT':
-                                # Armed status is derived from system_status
-                                is_armed = msg.system_status == mavutil.mavlink.MAV_STATE_ACTIVE
+                                # Armed status is derived from the SAFETY_ARMED flag in base_mode
+                                # (system_status == ACTIVE is reported even while disarmed on some vehicles, e.g. Rover)
+                                is_armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
                                 drone_status["armed"] = is_armed
 
                                 # Reverse lookup for mode name from mode ID
@@ -192,6 +204,14 @@ async def websocket_endpoint(websocket: WebSocket):
                                         mode_name = name
                                         break
                                 drone_status["mode"] = mode_name
+                            elif msg.get_type() == 'COMMAND_ACK':
+                                # 機体が受理しなかったコマンドを画面に知らせる（例: Rover に離陸・着陸を送った場合は UNSUPPORTED）
+                                if msg.result not in (mavutil.mavlink.MAV_RESULT_ACCEPTED,
+                                                      mavutil.mavlink.MAV_RESULT_IN_PROGRESS):
+                                    await websocket.send_json({
+                                        "type": "error",
+                                        "message": f"コマンドが受理されませんでした: {command_name(msg.command)} ({result_name(msg.result)})"
+                                    })
 
                             # Send updated status to frontend ONLY when there's a new message
                             await websocket.send_json(drone_status)

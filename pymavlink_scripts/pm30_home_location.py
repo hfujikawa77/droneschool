@@ -1,4 +1,6 @@
 from pymavlink import mavutil
+import sys
+import time
 
 # 機体への接続
 master: mavutil.mavfile = mavutil.mavlink_connection(
@@ -10,9 +12,13 @@ master.wait_heartbeat()
 #     master.target_system, master.target_component, 0, 10, 1)
 # master.mav.send(msg)
 
+deadline = time.time() + 10  # アームされるのを待つ時間（秒）
 while True:
     # HOME_POSITIONメッセージを受信, アームのタイミングで受信できる
-    msg = master.recv_match(type='HOME_POSITION', blocking=True)
+    msg = master.recv_match(type='HOME_POSITION', blocking=True, timeout=1)
+    if msg is None and time.time() > deadline:
+        print("HOME_POSITION が届きません。機体をアームすると届きます（ホーム位置はアーム時に確定します）")
+        sys.exit(1)
     if msg is not None:
         # ホームロケーション情報を設定
         home_latitude = msg.latitude / 1.0e7

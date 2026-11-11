@@ -1,3 +1,4 @@
+import sys
 import time
 from pymavlink import mavutil
 
@@ -11,6 +12,16 @@ print(
     % (master.target_system, master.target_component)
 )
 
+def wait_param(param_id, timeout=5):
+    """PARAM_VALUE を待つ。timeout 秒以内に届かなければ None を返す"""
+    end = time.time() + timeout
+    while time.time() < end:
+        message = master.recv_match(type="PARAM_VALUE", blocking=True, timeout=1)
+        if message is not None and message.param_id == param_id:
+            return message.to_dict()
+    return None
+
+
 # Define the parameter ID for RTL_ALT
 param_id = "RTL_ALT"
 param_type = mavutil.mavlink.MAV_PARAM_TYPE_REAL32  # Assuming RTL_ALT is of type REAL32
@@ -21,12 +32,13 @@ master.mav.param_request_read_send(
 )
 
 # Wait for the current value of the parameter
-while True:
-    message = master.recv_match(type="PARAM_VALUE", blocking=True).to_dict()
-    if message["param_id"] == param_id:
-        current_value = message["param_value"]
-        print(f"Current value of {param_id}: {current_value}")
-        break
+message = wait_param(param_id)
+if message is None:
+    # パラメータ名は機体種別ごとに違う（例: Rover には RTL_ALT がない）
+    print(f"{param_id} が見つかりません。この機体にないパラメータの可能性があります")
+    sys.exit(1)
+current_value = message["param_value"]
+print(f"Current value of {param_id}: {current_value}")
 
 # Define the new value for the parameter
 new_value = current_value + 200.0  # Set the desired RTL_ALT value in centimeters
@@ -38,11 +50,11 @@ master.mav.param_set_send(
 )
 
 # Wait for the ACK of the set parameter request
-while True:
-    message = master.recv_match(type="PARAM_VALUE", blocking=True).to_dict()
-    if message["param_id"] == param_id:
-        print(f"Parameter {param_id} set to {message['param_value']}")
-        break
+message = wait_param(param_id)
+if message is None:
+    print(f"{param_id} の設定結果が届きませんでした")
+    sys.exit(1)
+print(f"Parameter {param_id} set to {message['param_value']}")
 
 # Request the updated value of the parameter
 master.mav.param_request_read_send(
@@ -50,12 +62,12 @@ master.mav.param_request_read_send(
 )
 
 # Wait for the updated value of the parameter
-while True:
-    message = master.recv_match(type="PARAM_VALUE", blocking=True).to_dict()
-    if message["param_id"] == param_id:
-        updated_value = message["param_value"]
-        print(f"Updated value of {param_id}: {updated_value}")
-        break
+message = wait_param(param_id)
+if message is None:
+    print(f"{param_id} の更新後の値が届きませんでした")
+    sys.exit(1)
+updated_value = message["param_value"]
+print(f"Updated value of {param_id}: {updated_value}")
 
 # Close the connection
 master.close()
