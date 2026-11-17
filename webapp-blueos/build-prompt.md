@@ -97,6 +97,7 @@ MAVLink を継続受信し、以下を状態オブジェクトとして保持・
 - 接続先は既定で `tcp:127.0.0.1:5762`
 - `mavutil.mavlink_connection(connection_string)` で接続し、`vehicle.wait_heartbeat()` を呼ぶ
 - 接続成功後に位置系データストリーム要求を送る
+- **UDP（`udpout:`）で接続する場合は、GCS の HEARTBEAT を接続中ずっと 1 秒周期で送り続ける**（`mav.heartbeat_send(MAV_TYPE_GCS, MAV_AUTOPILOT_INVALID, 0, 0, 0)` をバックグラウンドで）。UDP には接続確立がなく、MAVLink のルータ（BlueOS の MAVLink Server など）は直近に送信してきたクライアントにしか配信しないため、接続時の 1 回だけだと 10 秒程度でテレメトリが止まる。TCP（既定の `tcp:127.0.0.1:5762`）では不要だが、送っても無害
 - `recv_match(blocking=True, timeout=0.1)` で受信し、**executor 経由でイベントループをブロックしない**（接続待ちも同様）
 - `GLOBAL_POSITION_INT` → 緯度・経度・高度・ヘディング、`HEARTBEAT` → アーム状態・モードを更新。モード名は `vehicle.mode_mapping()` で逆引き
 - **単位変換を必ず行う（変換漏れは典型バグ）**: 緯度経度 `msg.lat/1e7`・`msg.lon/1e7`（送信時 `int(×1e7)`）、高度 `msg.relative_alt/1000`（mm→m、無ければ `msg.alt`。送信時 `int(×1000)`）、ヘディング `msg.hdg/100`（`65535` は不明値として除外）、アーム判定 `bool(msg.base_mode & MAV_MODE_FLAG_SAFETY_ARMED)`

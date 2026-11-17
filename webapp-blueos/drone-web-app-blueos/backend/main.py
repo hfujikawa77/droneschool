@@ -54,6 +54,19 @@ async def request_data_streams():
         10,  # Rate in Hz
         1)   # Start sending
 
+def _heartbeat_loop(m):
+    """Keep sending a GCS heartbeat (1 Hz) while this connection is in use.
+    With udpout, the router only forwards telemetry to clients that have sent
+    something recently. A single heartbeat at connect time is not enough:
+    telemetry stops after ~10 s. Real GCSs (Mission Planner etc.) send it at 1 Hz."""
+    while vehicle is m:
+        try:
+            m.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_GCS,
+                                 mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
+        except Exception:
+            pass
+        time.sleep(1)
+
 def connect_to_vehicle():
     """Start a background thread that attempts to connect to the vehicle without blocking the main thread."""
     global vehicle, drone_connected, MODE_MAP, REVERSE_MODE_MAP
@@ -93,6 +106,7 @@ def connect_to_vehicle():
                 vehicle = m
                 drone_connected = True
                 drone_status["connected"] = True
+                threading.Thread(target=_heartbeat_loop, args=(m,), daemon=True).start()
                 print("Connected to vehicle (system %u component %u)" % (vehicle.target_system, vehicle.target_component))
                 # Schedule request_data_streams in the asyncio loop if available
                 try:

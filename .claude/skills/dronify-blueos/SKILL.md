@@ -70,11 +70,23 @@ def _connect():
             m.mav.request_data_stream_send(m.target_system, m.target_component,
                                            mavutil.mavlink.MAV_DATA_STREAM_ALL, 4, 1)
             master = m
+            threading.Thread(target=_heartbeat_loop, args=(m,), daemon=True).start()
         except Exception as e:
             print(f"connect retry: {e}"); time.sleep(3)
 
+def _heartbeat_loop(m):
+    # GCS の HEARTBEAT を 1 秒周期で送り続ける（Router にクライアントを登録し続けるため）
+    while master is m:
+        try:
+            m.mav.heartbeat_send(mavutil.mavlink.MAV_TYPE_GCS,
+                                 mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
+        except Exception:
+            pass
+        time.sleep(1)
+
 threading.Thread(target=_connect, daemon=True).start()
 ```
+- **HEARTBEAT は接続時の 1 回だけでは足りない。1 秒周期で送り続ける**こと。UDP（`udpout`）には接続確立がなく、Router は直近に送信してきたクライアントにしかテレメトリを配信しない。1 回だけだと **10 秒程度でテレメトリが止まる**（コマンド送信時だけ一時的に復活する）。Mission Planner など実際の GCS も 1 Hz で送っている。TCP（ローカル確認）では不要だが、送っても無害。
 - **import 時に `wait_heartbeat()` でブロックしない**こと。ブロックすると uvicorn が起動せず `/register_service` も応答できず、左メニューに出ない。
 - **`mode_mapping_byname(hb.type)` を使う**。Plane の `GUIDED=15` を Copter に送ると Copter ではモード15が **AUTOTUNE** になり「Mode change to Autotune failed」になる（Copter は `GUIDED=4`）。
 
@@ -174,6 +186,7 @@ docker buildx build --platform linux/amd64,linux/arm64 --provenance=false \
 
 - [ ] `MAV_ENDPOINT` 環境変数（既定 `udpout:host.docker.internal:14550`）
 - [ ] 非ブロック接続（バックグラウンドスレッド）
+- [ ] GCS HEARTBEAT を **1 秒周期で送り続ける**（接続時の 1 回だけは不可。UDP で受信が止まる）
 - [ ] autopilot 特定 ＋ `mode_mapping_byname`
 - [ ] 受信を自機（target sys/comp）に限定
 - [ ] ARM は `base_mode & SAFETY_ARMED`
