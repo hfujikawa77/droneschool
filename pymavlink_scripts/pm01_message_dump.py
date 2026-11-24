@@ -20,6 +20,6 @@ master.mav.command_long_send(
 while True:
     try:
         print(master.recv_match().to_dict())
-    except:
+    except Exception:
         pass
     time.sleep(0.01)
