@@ -8,8 +8,7 @@ master: mavutil.mavfile = mavutil.mavlink_connection(
 master.wait_heartbeat()
 
 # 変更後のモード
-#mode = "RTL"
-mode = "AUTO"
+mode = "RTL"
 
 
 # モードが有効かをチェック
@@ -35,12 +34,10 @@ end = time.time() + 5
 while master.flightmode != mode and time.time() < end:
     msg = master.recv_match(blocking=True, timeout=1)
     if msg is not None and msg.get_type() == 'STATUSTEXT':
-        print("機体からのメッセージ:", msg.text)  # 例: No Mission. Can't set AUTO.
+        print("機体からのメッセージ:", msg.text)
 
 if master.flightmode != mode:
     print(f"モードを {mode} に変更できませんでした（現在のモード: {master.flightmode}）")
-    if mode == "AUTO":
-        print("AUTO はミッションが無いと変更できません。先にミッションをアップロードしてください")
     sys.exit(1)
 
 print("変更後モード:", master.flightmode)
