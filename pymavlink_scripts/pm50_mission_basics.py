@@ -1,3 +1,5 @@
+import sys
+import time
 from pymavlink import mavutil
 
 def download_mission(master):
@@ -6,14 +8,20 @@ def download_mission(master):
     # ミッションアイテムの数を取得
     master.mav.mission_request_list_send(
         master.target_system, master.target_component)
-    mission_count = master.recv_match(
-        type='MISSION_COUNT', blocking=True).count
+    count_msg = master.recv_match(type='MISSION_COUNT', blocking=True, timeout=5)
+    if count_msg is None:
+        print("MISSION_COUNT が届きません")
+        sys.exit(1)
+    mission_count = count_msg.count
 
     # ミッションアイテムをダウンロード
     for i in range(mission_count):
         master.mav.mission_request_int_send(
             master.target_system, master.target_component, i)
-        item = master.recv_match(type='MISSION_ITEM_INT', blocking=True)
+        item = master.recv_match(type='MISSION_ITEM_INT', blocking=True, timeout=5)
+        if item is None:
+            print(f"ミッションアイテム {i} が届きません")
+            sys.exit(1)
         new_waypoint = mavutil.mavlink.MAVLink_mission_item_int_message(
             master.target_system,
             master.target_component,
@@ -26,6 +34,11 @@ def download_mission(master):
             item.x, item.y, item.z,
         )
         mission.append(new_waypoint)
+
+    # ダウンロードの完了を機体に伝える
+    master.mav.mission_ack_send(
+        master.target_system, master.target_component,
+        mavutil.mavlink.MAV_MISSION_ACCEPTED)
 
     return mission
 
@@ -50,18 +63,28 @@ def add_waypoint(mission, lat, lon, alt):
 
 
 def upload_mission(master, mission):
-    # ミッションをアップロード
-    master.mav.mission_clear_all_send(
-        master.target_system, master.target_component)
+    # ミッションアイテムの数を送る
     master.mav.mission_count_send(
         master.target_system, master.target_component, len(mission))
-    for i, item in enumerate(mission):
-        master.mav.send(item)
 
-    # アップロードしたミッションを機体に設定
-    master.mav.mission_set_current_send(0, master.target_component, 0)
-    master.mav.mission_request_list_send(
-        master.target_system, master.target_component)
+    # 機体が要求したアイテムを、1つずつ送る。全部届くと MISSION_ACK が返る
+    end = time.time() + 10
+    while time.time() < end:
+        msg = master.recv_match(
+            type=['MISSION_REQUEST_INT', 'MISSION_REQUEST', 'MISSION_ACK'],
+            blocking=True, timeout=1)
+        if msg is None:
+            continue
+        if msg.get_type() == 'MISSION_ACK':
+            accepted = msg.type == mavutil.mavlink.MAV_MISSION_ACCEPTED
+            if not accepted:
+                result = mavutil.mavlink.enums['MAV_MISSION_RESULT'][msg.type].name
+                print(f"ミッションが受理されませんでした: {result}")
+            return accepted
+        master.mav.send(mission[msg.seq])
+
+    print("MISSION_ACK が届きません")
+    return False
 
 
 def print_mission(mission):
@@ -91,5 +114,7 @@ if __name__ == '__main__':
     print_mission(downloaded_mission)
 
     # アップロード
-    upload_mission(master, downloaded_mission)
-    print("ミッションアップロード完了")
+    if upload_mission(master, downloaded_mission):
+        print("ミッションアップロード完了")
+    else:
+        sys.exit(1)

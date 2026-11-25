@@ -1,6 +1,3 @@
-import time
-import sys
-
 # Import mavutil
 from pymavlink import mavutil
 
@@ -15,13 +12,12 @@ master.wait_heartbeat()
 master.mav.param_request_list_send(
     master.target_system, master.target_component
 )
+# 3秒間 PARAM_VALUE が届かなくなったら、全部受信したとみなして終了する
+count = 0
 while True:
-    time.sleep(0.01)
-    try:
-        message = master.recv_match(
-            type='PARAM_VALUE', blocking=True).to_dict()
-        print('name: %s\tvalue: %d' % (message['param_id'],
-                                       message['param_value']))
-    except Exception as error:
-        print(error)
-        sys.exit(0)
+    message = master.recv_match(type='PARAM_VALUE', blocking=True, timeout=3)
+    if message is None:
+        break
+    count += 1
+    print('name: %s\tvalue: %g' % (message.param_id, message.param_value))
+print(f"{count} 個のパラメータを受信しました")

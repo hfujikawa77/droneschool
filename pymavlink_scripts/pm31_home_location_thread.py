@@ -33,9 +33,9 @@ master.mav.send(msg)
 thread = threading.Thread(target=receive_home_position, args=(master,))
 thread.start()
 
-# 機体のARM
+# 機体のARM（送信しただけで、ARM の完了は待たない。実行後は ARM したままなので、あとで DISARM する）
 master.arducopter_arm()
-print("ARM完了")
+print("ARM を送信しました")
 
 # スレッド終了待ち
 thread.join()

@@ -41,7 +41,9 @@ current_value = message["param_value"]
 print(f"Current value of {param_id}: {current_value}")
 
 # Define the new value for the parameter
-new_value = current_value + 200.0  # Set the desired RTL_ALT value in centimeters
+# RTL_ALT の単位は cm（200 = 2 m）。実行のたびに増え、SITL の eeprom.bin に残る
+# 元に戻すには、SITL を -w 付きで起動し直すか、current_value に書き戻す
+new_value = current_value + 200.0
 
 # Send a request to set the parameter
 master.mav.param_set_send(
