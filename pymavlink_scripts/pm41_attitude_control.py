@@ -27,7 +27,7 @@ def to_quaternion(roll=0.0, pitch=0.0, yaw=0.0):
     return [w, x, y, z]
 
 
-def send_attitude(roll, pitch, yaw, thrust=0.0):
+def send_attitude(roll, pitch, yaw, thrust=0.5):
     """姿勢(クオータニオン)で機体を制御するSET_ATTITUDE_TARGETを送信"""
     master.mav.set_attitude_target_send(
         0,      # ブートからの時間（今回は未使用）
@@ -38,7 +38,7 @@ def send_attitude(roll, pitch, yaw, thrust=0.0):
         0b00000111,
         to_quaternion(roll, pitch, yaw),  # クオータニオン角度(ロール,ピッチ,ヨー角度)
         0, 0, 0,    # ロール,ピッチ,ヨーレート（マスクで無視）
-        thrust)     # スラスト(GUID_OPTIONS既定では上昇率として解釈。0=高度維持)
+        thrust)     # スラスト(GUID_OPTIONS既定では上昇率として解釈。0.5=高度維持、<0.5=降下、>0.5=上昇)
 
 
 # 姿勢制御は送り続ける必要があるため、一定時間ストリーム送信する。
