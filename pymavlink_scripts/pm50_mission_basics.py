@@ -101,6 +101,11 @@ if __name__ == '__main__':
     print("ミッションダウンロード完了")
     print_mission(downloaded_mission)
 
+    # 0 番はホーム位置の場所（機体が自分の値に置き換える）。
+    # ミッションが空のときは、仮の項目を先に入れて、ウェイポイントが 0 番にならないようにする
+    if not downloaded_mission:
+        add_waypoint(master, downloaded_mission, lat=0, lon=0, alt=0)
+
     # ウェイポイントの追加
     add_waypoint(master, downloaded_mission, lat=35.8792449, lon=140.3394654, alt=5)
     print("ミッションへのウェイポイント追加完了")
