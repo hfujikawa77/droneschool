@@ -43,23 +43,21 @@ def download_mission(master):
     return mission
 
 
-def add_waypoint(mission, lat, lon, alt):
+def add_waypoint(master, mission, lat, lon, alt):
     # 新しいウェイポイントを追加
-    if mission:
-        new_waypoint = mavutil.mavlink.MAVLink_mission_item_int_message(
-            mission[0].target_system,
-            mission[0].target_component,
-            len(mission),
-            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
-            mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
-            0, 0, 0, 0, 0, 0,
-            int(lat * 1e7),
-            int(lon * 1e7),
-            int(alt)
-        )
-        mission.append(new_waypoint)
-    else:
-        print("ミッションが空です。他のウェイポイントを追加する前に、初期のウェイポイントを追加してください。")
+    # ミッションが空でも、接続先の ID を使って最初のウェイポイントを作る
+    new_waypoint = mavutil.mavlink.MAVLink_mission_item_int_message(
+        master.target_system,
+        master.target_component,
+        len(mission),
+        mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+        mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+        0, 0, 0, 0, 0, 0,
+        int(lat * 1e7),
+        int(lon * 1e7),
+        int(alt)
+    )
+    mission.append(new_waypoint)
 
 
 def upload_mission(master, mission):
@@ -104,12 +102,12 @@ if __name__ == '__main__':
     print_mission(downloaded_mission)
 
     # ウェイポイントの追加
-    add_waypoint(downloaded_mission, lat=35.8792449, lon=140.3394654, alt=5)
+    add_waypoint(master, downloaded_mission, lat=35.8792449, lon=140.3394654, alt=5)
     print("ミッションへのウェイポイント追加完了")
     print_mission(downloaded_mission)
 
     # ウェイポイントの追加
-    add_waypoint(downloaded_mission, lat=35.879, lon=140.339, alt=5)
+    add_waypoint(master, downloaded_mission, lat=35.879, lon=140.339, alt=5)
     print("ミッションへのウェイポイント追加完了")
     print_mission(downloaded_mission)
 
