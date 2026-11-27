@@ -22,9 +22,9 @@ def wait_param(param_id, timeout=5):
     return None
 
 
-# Define the parameter ID for RTL_ALT
-param_id = "RTL_ALT"
-param_type = mavutil.mavlink.MAV_PARAM_TYPE_REAL32  # Assuming RTL_ALT is of type REAL32
+# Define the parameter ID for RTL_ALT_M
+param_id = "RTL_ALT_M"
+param_type = mavutil.mavlink.MAV_PARAM_TYPE_REAL32  # Assuming RTL_ALT_M is of type REAL32
 
 # Request the current value of the parameter
 master.mav.param_request_read_send(
@@ -34,16 +34,16 @@ master.mav.param_request_read_send(
 # Wait for the current value of the parameter
 message = wait_param(param_id)
 if message is None:
-    # パラメータ名は機体種別ごとに違う（例: Rover には RTL_ALT がない）
+    # パラメータ名は機体種別ごとに違う（例: Rover には RTL_ALT_M がない）
     print(f"{param_id} が見つかりません。この機体にないパラメータの可能性があります")
     sys.exit(1)
 current_value = message["param_value"]
 print(f"Current value of {param_id}: {current_value}")
 
 # Define the new value for the parameter
-# RTL_ALT の単位は cm（200 = 2 m）。実行のたびに増え、SITL の eeprom.bin に残る
+# RTL_ALT_M の単位は m。実行のたびに 2 増え、SITL の eeprom.bin に残る
 # 元に戻すには、SITL を -w 付きで起動し直すか、current_value に書き戻す
-new_value = current_value + 200.0
+new_value = current_value + 2.0
 
 # Send a request to set the parameter
 master.mav.param_set_send(
