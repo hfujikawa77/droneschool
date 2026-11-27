@@ -33,21 +33,28 @@ master.mav.set_position_target_global_int_send(
     int(target_lat * 1e7), int(target_lon * 1e7), target_alt,
     0, 0, 0, 0, 0, 0, 0, 0,)
 
+# Rover / ボートは高度を変えられないので、到着の判定に高度を使わない
+ignore_alt = master.mav_type in (
+    mavutil.mavlink.MAV_TYPE_GROUND_ROVER, mavutil.mavlink.MAV_TYPE_SURFACE_BOAT)
+
 # 位置情報をログに出し続ける
+# 届いた位置はすべて読み、表示だけ 1 秒おきにする（読み残すと、古い位置を見ることになる）
+shown = 0
 while True:
     msg = master.recv_match(type='GLOBAL_POSITION_INT', blocking=True)
     if msg:
         current_lat = msg.lat / 1e7
         current_lon = msg.lon / 1e7
         current_alt = msg.relative_alt / 1000.0
-        print(f"Current position: lat={current_lat}, lon={current_lon}, alt={current_alt}")
+        if time.time() - shown >= 1:
+            print(f"Current position: lat={current_lat}, lon={current_lon}, alt={current_alt}")
+            shown = time.time()
 
         # 目的地に近いかどうかを判定
-        if abs(current_lat - target_lat) < 0.0001 and abs(current_lon - target_lon) < 0.0001 and abs(current_alt - target_alt) < 0.5:
+        near_alt = ignore_alt or abs(current_alt - target_alt) < 0.5
+        if abs(current_lat - target_lat) < 0.0001 and abs(current_lon - target_lon) < 0.0001 and near_alt:
             print("Approaching target position, stopping logging.")
             break
             # stop_event.set()
 
-    time.sleep(1)
-    
 print("Position logging stopped. Reached target position.")
