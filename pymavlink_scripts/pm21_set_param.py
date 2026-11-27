@@ -22,28 +22,37 @@ def wait_param(param_id, timeout=5):
     return None
 
 
-# Define the parameter ID for RTL_ALT_M
+def read_param(param_id):
+    """パラメータの現在値を要求して待つ。見つからなければ None を返す"""
+    master.mav.param_request_read_send(
+        master.target_system, master.target_component, param_id.encode("ascii"), -1
+    )
+    return wait_param(param_id)
+
+
+# RTL の高度パラメータは、ArduPilot の版で名前と単位が違う
+# 新しい版: RTL_ALT_M（単位 m）、古い版: RTL_ALT（単位 cm）
+# まず RTL_ALT_M を試し、なければ RTL_ALT に切り替える
 param_id = "RTL_ALT_M"
+delta = 2.0  # 増やす量（m）
 param_type = mavutil.mavlink.MAV_PARAM_TYPE_REAL32  # Assuming RTL_ALT_M is of type REAL32
 
-# Request the current value of the parameter
-master.mav.param_request_read_send(
-    master.target_system, master.target_component, param_id.encode("ascii"), -1
-)
-
-# Wait for the current value of the parameter
-message = wait_param(param_id)
+message = read_param(param_id)
 if message is None:
-    # パラメータ名は機体種別ごとに違う（例: Rover には RTL_ALT_M がない）
+    param_id = "RTL_ALT"
+    delta = 200.0  # 増やす量（cm）
+    message = read_param(param_id)
+if message is None:
+    # パラメータ名は機体種別ごとに違う（例: Rover にはどちらのパラメータもない）
     print(f"{param_id} が見つかりません。この機体にないパラメータの可能性があります")
     sys.exit(1)
 current_value = message["param_value"]
 print(f"Current value of {param_id}: {current_value}")
 
 # Define the new value for the parameter
-# RTL_ALT_M の単位は m。実行のたびに 2 増え、SITL の eeprom.bin に残る
+# 実行のたびに増え、SITL の eeprom.bin に残る
 # 元に戻すには、SITL を -w 付きで起動し直すか、current_value に書き戻す
-new_value = current_value + 2.0
+new_value = current_value + delta
 
 # Send a request to set the parameter
 master.mav.param_set_send(
