@@ -31,7 +31,7 @@ master.mav.set_position_target_global_int_send(
     mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,  # グローバル座標、相対高度
     0b0000111111111000,
     int(target_lat * 1e7), int(target_lon * 1e7), target_alt,
-    0, 0, 0, 0, 0, 0, 0, 0, 0,)
+    0, 0, 0, 0, 0, 0, 0, 0,)
 
 # 位置情報をログに出し続ける
 while True:
